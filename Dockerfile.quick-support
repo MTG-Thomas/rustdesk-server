@@ -1,0 +1,13 @@
+FROM rust@sha256:ee9b9f2ebd8741e4ecf1ade08918e492d642c4e625be481bb7b7954b89e9d504 AS build
+RUN apk add --no-cache build-base linux-headers pkgconf libsodium-dev libsodium-static clang-dev openssl-dev openssl-libs-static git perl autoconf automake libtool python3 py3-pip
+ENV SODIUM_LIB_DIR=/usr/lib OPENSSL_STATIC=1 CARGO_NET_GIT_FETCH_WITH_CLI=true
+WORKDIR /work
+COPY . .
+RUN cargo build --locked --release --bins
+RUN python3 -m venv /test-env && /test-env/bin/pip install --no-cache-dir websockets==15.0.1 && /test-env/bin/python tests/run_protocol_tests.py target/release/hbbs
+
+FROM rustdesk/rustdesk-server-s6@sha256:dc099359c4a30611c59f8826bf6eb9780f38d4901470a3901d9eeb21854e0605
+COPY --from=build /work/target/release/hbbs /work/target/release/hbbr /work/target/release/rustdesk-utils /usr/bin/
+COPY LICENSE /usr/share/licenses/rustdesk-server/LICENSE
+LABEL org.opencontainers.image.source="https://github.com/MTG-Thomas/rustdesk-server" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
