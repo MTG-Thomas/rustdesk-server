@@ -1,0 +1,28 @@
+name: Quick Support server image
+on:
+  push:
+    branches: [codex/websocket-registration]
+    paths: [src/**, libs/**, Cargo.lock, Cargo.toml, Dockerfile.quick-support, tests/**, .github/workflows/quick-support-image.yml]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build-test-publish:
+    if: github.repository == 'MTG-Thomas/rustdesk-server'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - name: Authenticate to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and exercise real rendezvous protocol
+        run: docker build -f Dockerfile.quick-support --label org.opencontainers.image.revision=$GITHUB_SHA --label org.opencontainers.image.version=1.1.16-mtg.ws1 -t ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA .
+      - name: Publish tested image
+        run: docker push ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA
+      - name: Record immutable image digest
+        run: |
+          docker pull ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA
+          docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA >> "$GITHUB_STEP_SUMMARY"
