@@ -15,10 +15,11 @@ RUN python3 /src/busybox_security.py /src/busybox-1.37.0/busybox
 
 FROM rust@sha256:ee9b9f2ebd8741e4ecf1ade08918e492d642c4e625be481bb7b7954b89e9d504 AS build
 RUN apk add --no-cache build-base linux-headers pkgconf libsodium-dev libsodium-static clang-dev openssl-dev openssl-libs-static git perl autoconf automake libtool python3 py3-pip
-ENV SODIUM_LIB_DIR=/usr/lib OPENSSL_STATIC=1 CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV OPENSSL_STATIC=1 CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /work
 COPY . .
 RUN cargo install cargo-auditable --version 0.7.7 --locked && python3 scripts/apply_common_patch.py && cargo auditable build --locked --release --bins
+RUN python3 -c 'import glob, tarfile; archive = glob.glob("/usr/local/cargo/registry/src/*/libsodium-sys-stable-1.24.0/LATEST.tar.gz"); assert len(archive) == 1; source = tarfile.open(archive[0]); open("/work/libsodium.LICENSE", "wb").write(source.extractfile("libsodium-stable/LICENSE").read())'
 RUN python3 scripts/check_auditable.py target/release/hbbs target/release/hbbr target/release/rustdesk-utils
 RUN python3 -m venv /test-env && /test-env/bin/pip install --no-cache-dir websockets==15.0.1 && /test-env/bin/python tests/run_protocol_tests.py target/release/hbbs
 
@@ -38,5 +39,8 @@ COPY --from=busybox-build /src/busybox-1.37.0.tar.bz2 /usr/share/licenses/busybo
 COPY --from=busybox-build /src/patches /usr/share/licenses/busybox/patches/
 COPY --from=busybox-build /src/busybox-1.37.0/LICENSE /usr/share/licenses/busybox/LICENSE
 COPY LICENSE /usr/share/licenses/rustdesk-server/LICENSE
+COPY --from=build /work/libsodium.LICENSE /usr/share/licenses/libsodium/LICENSE
+COPY --from=build /usr/local/cargo/registry/src/*/libsodium-rs-0.2.5/LICENSE /usr/share/licenses/libsodium-rs/LICENSE
+COPY --from=build /usr/local/cargo/registry/src/*/libsodium-sys-stable-1.24.0/LICENSE* /usr/share/licenses/libsodium-sys-stable/
 LABEL org.opencontainers.image.source="https://github.com/MTG-Thomas/rustdesk-server" \
       org.opencontainers.image.licenses="AGPL-3.0-only"

@@ -1,9 +1,28 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 58f54ac..dba70e8 100644
+index 58f54ac..1d2da22 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -51,7 +51,7 @@ default_net = { git = "https://github.com/rustdesk-org/default_net" }
- machine-uid = { git = "https://github.com/rustdesk-org/machine-uid" }
+@@ -28,13 +28,12 @@ lazy_static = "1.4"
+ confy = { git = "https://github.com/rustdesk-org/confy" }
+ dirs-next = "2.0"
+ filetime = "0.2"
+-sodiumoxide = "0.2"
++libsodium-rs = "=0.2.5"
+ regex = "1.8"
+ tokio-socks = { git = "https://github.com/rustdesk-org/tokio-socks" }
+ chrono = "0.4"
+ backtrace = "0.3"
+ libc = "0.2"
+-dlopen = "0.1"
+ toml = "0.7"
+ uuid = { version = "1.3", features = ["v4"] }
+ # new sysinfo issue: https://github.com/rustdesk/rustdesk/pull/6330#issuecomment-2270871442
+@@ -48,10 +47,10 @@ sha2 = "0.10"
+ [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+ mac_address = "1.1"
+ default_net = { git = "https://github.com/rustdesk-org/default_net" }
+-machine-uid = { git = "https://github.com/rustdesk-org/machine-uid" }
++machine-uid = "=0.6.0"
  [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
  tokio-rustls = { version = "0.26", features = ["logging", "tls12", "ring"], default-features = false }
 -rustls-platform-verifier = "0.3.1"
@@ -12,10 +31,27 @@ index 58f54ac..dba70e8 100644
  [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
  tokio-native-tls ="0.3"
 diff --git a/src/config.rs b/src/config.rs
-index a542309..35256c7 100644
+index a542309..d765ff4 100644
 --- a/src/config.rs
 +++ b/src/config.rs
-@@ -759,7 +759,7 @@ impl Config {
+@@ -9,6 +9,7 @@ use std::{
+     time::{Duration, Instant, SystemTime},
+ };
+ 
++use crate::encoding as base64;
+ use anyhow::Result;
+ use bytes::Bytes;
+ use rand::Rng;
+@@ -16,8 +17,6 @@ use regex::Regex;
+ use serde as de;
+ use serde_derive::{Deserialize, Serialize};
+ use serde_json;
+-use sodiumoxide::base64;
+-use sodiumoxide::crypto::sign;
+ 
+ use crate::{
+     compress::{compress, decompress},
+@@ -759,7 +758,7 @@ impl Config {
                  return ss;
              }
          }
@@ -24,7 +60,18 @@ index a542309..35256c7 100644
      }
  
      pub fn reset_online() {
-@@ -992,7 +992,7 @@ impl Config {
+@@ -893,8 +892,8 @@ impl Config {
+         let mut config = Config::load_::<Config>("");
+         if config.key_pair.0.is_empty() {
+             log::info!("Generated new keypair for id: {}", config.id);
+-            let (pk, sk) = sign::gen_keypair();
+-            let key_pair = (sk.0.to_vec(), pk.0.into());
++            let (pk, sk) = crate::generate_signing_keypair();
++            let key_pair = (sk.as_bytes().to_vec(), pk.as_bytes().to_vec());
+             config.key_pair = key_pair.clone();
+             std::thread::spawn(|| {
+                 let mut config = CONFIG.write().unwrap();
+@@ -992,7 +991,7 @@ impl Config {
              .read()
              .unwrap()
              .get("password")
@@ -33,7 +80,7 @@ index a542309..35256c7 100644
          {
              return;
          }
-@@ -1139,8 +1139,8 @@ impl Config {
+@@ -1139,8 +1138,8 @@ impl Config {
          trusted_devices.retain(|d| !d.outdate());
          let devices = serde_json::to_string(&trusted_devices).unwrap_or_default();
          let max_len = 1024 * 1024;
@@ -44,7 +91,7 @@ index a542309..35256c7 100644
              return;
          }
          let devices = encrypt_str_or_original(&devices, PASSWORD_ENC_VERSION, max_len);
-@@ -1157,7 +1157,7 @@ impl Config {
+@@ -1157,7 +1156,7 @@ impl Config {
          Self::set_trusted_devices(devices);
      }
  
@@ -53,7 +100,7 @@ index a542309..35256c7 100644
          let mut devices = Self::get_trusted_devices();
          devices.retain(|d| !hwids.contains(&d.hwid));
          Self::set_trusted_devices(devices);
-@@ -1388,7 +1388,7 @@ impl PeerConfig {
+@@ -1388,7 +1387,7 @@ impl PeerConfig {
      }
  
      pub fn batch_peers(
@@ -62,7 +109,7 @@ index a542309..35256c7 100644
          from: usize,
          to: Option<usize>,
      ) -> (Vec<(String, SystemTime, PeerConfig)>, usize) {
-@@ -1409,11 +1409,11 @@ impl PeerConfig {
+@@ -1409,11 +1408,11 @@ impl PeerConfig {
          let peers: Vec<_> = all[from..to]
              .iter()
              .map(|(id, t, p)| {
@@ -76,7 +123,7 @@ index a542309..35256c7 100644
              })
              .filter(|p| !p.2.info.platform.is_empty())
              .collect();
-@@ -1476,7 +1476,7 @@ impl PeerConfig {
+@@ -1476,7 +1475,7 @@ impl PeerConfig {
  
      fn default_options() -> HashMap<String, String> {
          let mut mp: HashMap<String, String> = Default::default();
@@ -85,7 +132,7 @@ index a542309..35256c7 100644
              keys::OPTION_CODEC_PREFERENCE,
              keys::OPTION_CUSTOM_FPS,
              keys::OPTION_ZOOM_CURSOR,
-@@ -1484,10 +1484,9 @@ impl PeerConfig {
+@@ -1484,10 +1483,9 @@ impl PeerConfig {
              keys::OPTION_I444,
              keys::OPTION_SWAP_LEFT_RIGHT_MOUSE,
              keys::OPTION_COLLAPSE_TOOLBAR,
@@ -98,7 +145,7 @@ index a542309..35256c7 100644
          mp
      }
  }
-@@ -2191,7 +2190,7 @@ fn is_option_can_save(
+@@ -2191,7 +2189,7 @@ fn is_option_can_save(
      v: &str,
  ) -> bool {
      if overwrite.read().unwrap().contains_key(k)
@@ -107,7 +154,7 @@ index a542309..35256c7 100644
      {
          return false;
      }
-@@ -2204,7 +2203,7 @@ pub fn is_incoming_only() -> bool {
+@@ -2204,7 +2202,7 @@ pub fn is_incoming_only() -> bool {
          .read()
          .unwrap()
          .get("conn-type")
@@ -116,7 +163,7 @@ index a542309..35256c7 100644
  }
  
  #[inline]
-@@ -2213,7 +2212,7 @@ pub fn is_outgoing_only() -> bool {
+@@ -2213,7 +2211,7 @@ pub fn is_outgoing_only() -> bool {
          .read()
          .unwrap()
          .get("conn-type")
@@ -125,7 +172,7 @@ index a542309..35256c7 100644
  }
  
  #[inline]
-@@ -2222,7 +2221,7 @@ fn is_some_hard_opton(name: &str) -> bool {
+@@ -2222,7 +2220,7 @@ fn is_some_hard_opton(name: &str) -> bool {
          .read()
          .unwrap()
          .get(name)
@@ -134,7 +181,7 @@ index a542309..35256c7 100644
  }
  
  #[inline]
-@@ -2621,7 +2620,7 @@ mod tests {
+@@ -2621,7 +2619,7 @@ mod tests {
          res.insert("d".to_owned(), "c".to_string());
          res.insert("c".to_owned(), "a".to_string());
          Config::purify_options(&mut res);
@@ -143,7 +190,7 @@ index a542309..35256c7 100644
          res.insert("b".to_owned(), "c".to_string());
          res.insert("d".to_owned(), "c".to_string());
          res.insert("c".to_owned(), "a".to_string());
-@@ -2820,15 +2819,15 @@ mod tests {
+@@ -2820,15 +2818,15 @@ mod tests {
      fn test_store_load() {
          let peerconfig_id = "123456789";
          let cfg: PeerConfig = Default::default();
@@ -253,10 +300,32 @@ index 1488ffd..1638bb8 100644
      } else {
          bail!("{path:?} not exists");
 diff --git a/src/lib.rs b/src/lib.rs
-index 9475b96..36541b4 100644
+index 9475b96..376f975 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -107,7 +107,6 @@ pub type ResultType<F, E = anyhow::Error> = anyhow::Result<F, E>;
+@@ -30,11 +30,11 @@ pub mod config;
+ pub mod fs;
+ pub mod mem;
+ pub use lazy_static;
++pub use libsodium_rs;
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ pub use mac_address;
+ pub use rand;
+ pub use regex;
+-pub use sodiumoxide;
+ pub use tokio_socks;
+ pub use tokio_socks::IntoTargetAddr;
+ pub use tokio_socks::TargetAddr;
+@@ -45,8 +45,6 @@ pub use libc;
+ pub mod keyboard;
+ pub use base64;
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+-pub use dlopen;
+-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+ pub use machine_uid;
+ pub use serde_derive;
+ pub use serde_json;
+@@ -107,7 +105,6 @@ pub type ResultType<F, E = anyhow::Error> = anyhow::Result<F, E>;
  
  /// Certain router and firewalls scan the packet and if they
  /// find an IP address belonging to their pool that they use to do the NAT mapping/translation, so here we mangle the ip address
@@ -264,7 +333,7 @@ index 9475b96..36541b4 100644
  pub struct AddrMangle();
  
  #[inline]
-@@ -174,7 +173,7 @@ impl AddrMangle {
+@@ -174,7 +171,7 @@ impl AddrMangle {
          let mut padded = [0u8; 16];
          padded[..bytes.len()].copy_from_slice(bytes);
          let number = u128::from_le_bytes(padded);
@@ -273,7 +342,7 @@ index 9475b96..36541b4 100644
          let ip = (((number >> 49) - tm) as u32).to_le_bytes();
          let port = (number & 0xFFFFFF) - (tm & 0xFFFF);
          SocketAddr::V4(SocketAddrV4::new(
-@@ -214,7 +213,7 @@ pub fn gen_version() {
+@@ -214,7 +211,7 @@ pub fn gen_version() {
      println!("cargo:rerun-if-changed=Cargo.toml");
      use std::io::prelude::*;
      let mut file = File::create("./src/version.rs").unwrap();
@@ -282,6 +351,42 @@ index 9475b96..36541b4 100644
          let ab: Vec<&str> = line.split('=').map(|x| x.trim()).collect();
          if ab.len() == 2 && ab[0] == "version" {
              file.write_all(format!("pub const VERSION: &str = {};\n", ab[1]).as_bytes())
+@@ -547,3 +544,35 @@ mod test {
+         assert_eq!(get_version_number("1.2.3"), 1002030);
+     }
+ }
++
++/// Preserve the upstream infallible key-generation contract. An unavailable
++/// cryptographic runtime is fatal: never return empty or predictable keys.
++pub fn generate_signing_keypair() -> (
++    libsodium_rs::crypto_sign::PublicKey,
++    libsodium_rs::crypto_sign::SecretKey,
++) {
++    match libsodium_rs::crypto_sign::KeyPair::generate() {
++        Ok(pair) => (pair.public_key, pair.secret_key),
++        Err(_) => {
++            log::error!("Cryptographic key generation failed");
++            std::process::abort();
++        }
++    }
++}
++
++/// Standard padded Base64 used by existing persisted passwords and IDs.
++pub mod encoding {
++    use base64::{engine::general_purpose::STANDARD, Engine};
++    pub enum Variant {
++        Original,
++    }
++    pub fn encode<T: AsRef<[u8]>>(data: T, _variant: Variant) -> String {
++        STANDARD.encode(data)
++    }
++    pub fn decode<T: AsRef<[u8]>>(
++        data: T,
++        _variant: Variant,
++    ) -> Result<Vec<u8>, base64::DecodeError> {
++        STANDARD.decode(data)
++    }
++}
 diff --git a/src/mem.rs b/src/mem.rs
 index 90a5d6d..ded02ce 100644
 --- a/src/mem.rs
@@ -298,9 +403,16 @@ index 90a5d6d..ded02ce 100644
      use std::alloc::*;
  
 diff --git a/src/password_security.rs b/src/password_security.rs
-index 5c04cc9..ef49813 100644
+index 5c04cc9..23da1d4 100644
 --- a/src/password_security.rs
 +++ b/src/password_security.rs
+@@ -1,5 +1,5 @@
+ use crate::config::Config;
+-use sodiumoxide::base64;
++use crate::encoding as base64;
+ use std::sync::{Arc, RwLock};
+ 
+ lazy_static::lazy_static! {
 @@ -106,15 +106,13 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
  // note: s.len() return length in bytes, s.chars().count() return char count
  //       &[..2] return the left 2 bytes, s.chars().take(2) return the left 2 chars
@@ -341,6 +453,7 @@ index 5c04cc9..ef49813 100644
      if !v.is_empty() {
 -        base64::decode(v, base64::Variant::Original).and_then(|v| symmetric_crypt(&v, false))
 +        base64::decode(v, base64::Variant::Original)
++            .map_err(|_| ())
 +            .and_then(|v| symmetric_crypt(&v, false).map_err(|_| ()))
      } else {
          Err(())
@@ -348,19 +461,21 @@ index 5c04cc9..ef49813 100644
  }
  
 -pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
+-    use sodiumoxide::crypto::secretbox;
+-    use std::convert::TryInto;
 +#[derive(Debug, thiserror::Error)]
 +#[error("symmetric encryption or authentication failed")]
 +pub struct SymmetricCryptError;
 +
 +pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, SymmetricCryptError> {
-     use sodiumoxide::crypto::secretbox;
-     use std::convert::TryInto;
++    use libsodium_rs::crypto_secretbox as secretbox;
  
      let mut keybuf = crate::get_uuid();
      keybuf.resize(secretbox::KEYBYTES, 0);
 -    let key = secretbox::Key(keybuf.try_into().map_err(|_| ())?);
-+    let key = secretbox::Key(keybuf.try_into().map_err(|_| SymmetricCryptError)?);
-     let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
+-    let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
++    let key = secretbox::Key::from_bytes(&keybuf).map_err(|_| SymmetricCryptError)?;
++    let nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
  
      if encrypt {
          Ok(secretbox::seal(data, &nonce, &key))
@@ -553,18 +668,24 @@ index 34d2c51..0c2ae67 100644
 +    }
  }
 diff --git a/src/tcp.rs b/src/tcp.rs
-index c85338d..1248bc8 100644
+index c85338d..11b34a7 100644
 --- a/src/tcp.rs
 +++ b/src/tcp.rs
-@@ -1,4 +1,4 @@
+@@ -1,14 +1,14 @@
 -use crate::{bail, bytes_codec::BytesCodec, ResultType, config::Socks5Server, proxy::Proxy};
 +use crate::{bail, bytes_codec::BytesCodec, config::Socks5Server, proxy::Proxy, ResultType};
  use anyhow::Context as AnyhowCtx;
  use bytes::{BufMut, Bytes, BytesMut};
  use futures::{SinkExt, StreamExt};
-@@ -8,7 +8,7 @@ use sodiumoxide::crypto::{
-     secretbox::{self, Key, Nonce},
+-use protobuf::Message;
+-use sodiumoxide::crypto::{
+-    box_,
+-    secretbox::{self, Key, Nonce},
++use libsodium_rs::{
++    crypto_box as box_, crypto_secretbox as secretbox,
++    crypto_secretbox::{Key, Nonce},
  };
++use protobuf::Message;
  use std::{
 -    io::{self, Error, ErrorKind},
 +    io::{self, Error},
@@ -596,12 +717,25 @@ index c85338d..1248bc8 100644
      }
  
      pub fn set_key(&mut self, key: Key) {
+@@ -201,9 +200,9 @@ impl FramedStream {
+     }
+ 
+     fn get_nonce(seqnum: u64) -> Nonce {
+-        let mut nonce = Nonce([0u8; secretbox::NONCEBYTES]);
+-        nonce.0[..std::mem::size_of_val(&seqnum)].copy_from_slice(&seqnum.to_le_bytes());
+-        nonce
++        let mut nonce = [0u8; secretbox::NONCEBYTES];
++        nonce[..std::mem::size_of_val(&seqnum)].copy_from_slice(&seqnum.to_le_bytes());
++        Nonce::from_bytes(nonce)
+     }
+ }
+ 
 @@ -310,14 +309,14 @@ impl Encrypt {
                  bytes.put_slice(&res);
                  Ok(())
              }
 -            Err(()) => Err(Error::new(ErrorKind::Other, "decryption error")),
-+            Err(()) => Err(Error::other("decryption error")),
++            Err(_) => Err(Error::other("decryption error")),
          }
      }
  
@@ -613,15 +747,28 @@ index c85338d..1248bc8 100644
      }
  
      pub fn decode(
-@@ -332,7 +331,7 @@ impl Encrypt {
+@@ -328,17 +327,17 @@ impl Encrypt {
+         if their_pk_b.len() != box_::PUBLICKEYBYTES {
+             anyhow::bail!("Handshake failed: pk length {}", their_pk_b.len());
+         }
+-        let nonce = box_::Nonce([0u8; box_::NONCEBYTES]);
++        let nonce = box_::Nonce::from_bytes_exact([0u8; box_::NONCEBYTES]);
          let mut pk_ = [0u8; box_::PUBLICKEYBYTES];
          pk_[..].copy_from_slice(their_pk_b);
-         let their_pk_b = box_::PublicKey(pk_);
+-        let their_pk_b = box_::PublicKey(pk_);
 -        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, &our_sk_b)
++        let their_pk_b = box_::PublicKey::from_bytes(&pk_)?;
 +        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, our_sk_b)
              .map_err(|_| anyhow::anyhow!("Handshake failed: box decryption failure"))?;
          if symmetric_key.len() != secretbox::KEYBYTES {
              anyhow::bail!("Handshake failed: invalid secret key length from peer");
+         }
+         let mut key = [0u8; secretbox::KEYBYTES];
+         key[..].copy_from_slice(&symmetric_key);
+-        Ok(Key(key))
++        Ok(Key::from_bytes(&key)?)
+     }
+ }
 diff --git a/src/udp.rs b/src/udp.rs
 index fbdf332..2a6f319 100644
 --- a/src/udp.rs

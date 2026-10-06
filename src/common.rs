@@ -1,11 +1,11 @@
-use clap::App;
+use clap::{Arg, Command};
 use hbb_common::{
     allow_err,
     anyhow::{Context, Result},
     get_version_number, log, tokio, ResultType,
 };
 use ini::Ini;
-use sodiumoxide::crypto::sign;
+use libsodium_rs::crypto_sign as sign;
 use std::{
     io::prelude::*,
     io::Read,
@@ -55,12 +55,11 @@ fn arg_name(name: &str) -> String {
 }
 
 #[allow(dead_code)]
-pub fn init_args(args: &str, name: &str, about: &str) {
-    let matches = App::new(name)
+pub fn init_args(name: &'static str, about: &'static str) {
+    let matches = server_command(name)
         .version(crate::version::VERSION)
         .author("Purslane Ltd. <info@rustdesk.com>")
         .about(about)
-        .args_from_usage(args)
         .get_matches();
     if let Ok(v) = Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
@@ -69,7 +68,7 @@ pub fn init_args(args: &str, name: &str, about: &str) {
                 .for_each(|(k, v)| std::env::set_var(arg_name(k), v));
         }
     }
-    if let Some(config) = matches.value_of("config") {
+    if let Some(config) = matches.get_one::<String>("config") {
         if let Ok(v) = Ini::load_from_file(config) {
             if let Some(section) = v.section(None::<String>) {
                 section
@@ -78,9 +77,9 @@ pub fn init_args(args: &str, name: &str, about: &str) {
             }
         }
     }
-    for (k, v) in matches.args {
-        if let Some(v) = v.vals.first() {
-            std::env::set_var(arg_name(k), v.to_string_lossy().to_string());
+    for id in matches.ids() {
+        if let Some(value) = matches.get_one::<String>(id.as_str()) {
+            std::env::set_var(arg_name(id.as_str()), value);
         }
     }
 }
@@ -121,7 +120,7 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
                 tmp[..].copy_from_slice(&sk);
                 let pk = base64::encode(&tmp[sign::SECRETKEYBYTES / 2..]);
                 log::info!("Private key comes from {}", sk_file);
-                return (pk, Some(sign::SecretKey(tmp)));
+                return (pk, Some(sign::SecretKey::from_bytes_exact(tmp)));
             } else {
                 // don't use log here, since it is async
                 println!("Fatal error: malformed private key in {sk_file}.");
@@ -130,7 +129,7 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
         }
     } else {
         let gen_func = || {
-            let (tmp, sk) = sign::gen_keypair();
+            let (tmp, sk) = hbb_common::generate_signing_keypair();
             (base64::encode(tmp), sk)
         };
         let (mut pk, mut sk) = gen_func();
@@ -218,4 +217,94 @@ async fn check_software_update_() -> hbb_common::ResultType<()> {
         log::info!("new version is available: {}", latest_release_version);
     }
     Ok(())
+}
+
+/// Shared explicit CLI contract; environment and INI precedence stays in callers.
+pub fn server_command(name: &'static str) -> Command {
+    let mut command = Command::new(name);
+    let options = [
+        ("port", Some('p'), "Listening port"),
+        ("key", Some('k'), "Required client key"),
+    ];
+    for (id, short, help) in options {
+        let mut arg = Arg::new(id).long(id).num_args(1).help(help);
+        if let Some(short) = short {
+            arg = arg.short(short);
+        }
+        command = command.arg(arg);
+    }
+    if name == "hbbs" {
+        for (id, short, help) in [
+            ("config", Some('c'), "Custom INI configuration file"),
+            (
+                "serial",
+                Some('s'),
+                "Deprecated configuration serial number",
+            ),
+            (
+                "rendezvous-servers",
+                Some('R'),
+                "Deprecated rendezvous servers",
+            ),
+            (
+                "software-url",
+                Some('u'),
+                "Deprecated software download URL",
+            ),
+            ("relay-servers", Some('r'), "Default relay servers"),
+            ("rmem", Some('M'), "UDP receive buffer size"),
+            ("mask", None, "Deprecated LAN mask"),
+        ] {
+            let mut arg = Arg::new(id).long(id).num_args(1).help(help);
+            if let Some(short) = short {
+                arg = arg.short(short);
+            }
+            command = command.arg(arg);
+        }
+    }
+    command
+}
+
+#[cfg(test)]
+mod cli_contract_tests {
+    #[test]
+    fn rendezvous_flags_keep_names_values_and_negative_key() {
+        let matches = super::server_command("hbbs")
+            .try_get_matches_from([
+                "hbbs",
+                "-c",
+                "server.ini",
+                "-p",
+                "21116",
+                "-s",
+                "0",
+                "-R",
+                "host",
+                "-u",
+                "https://example.invalid",
+                "-r",
+                "relay",
+                "-M",
+                "1024",
+                "--mask",
+                "10.0.0.0/8",
+                "-k",
+                "-",
+            ])
+            .unwrap();
+        assert_eq!(
+            matches.get_one::<String>("key").map(String::as_str),
+            Some("-")
+        );
+        assert_eq!(
+            matches.get_one::<String>("config").map(String::as_str),
+            Some("server.ini")
+        );
+        assert!(super::server_command("hbbr")
+            .try_get_matches_from(["hbbr", "--relay-servers", "host"])
+            .is_err());
+        assert!(super::server_command("hbbs")
+            .try_get_matches_from(["hbbs", "--port"])
+            .is_err());
+    }
 }
