@@ -1,3 +1,10 @@
+## Supported management interface
+
+BiFrost Quick Support is this fork's supported management interface. The legacy
+Tauri desktop server-management GUI and its installer have been retired; their
+source remains in Git history. The RustDesk client and customer approval prompts
+are separate components and remain supported.
+
 # RustDesk Server Program
 
 This is MTG’s maintained fork of `rustdesk/rustdesk-server`. See

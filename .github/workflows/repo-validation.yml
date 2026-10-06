@@ -137,7 +137,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [rust, actions, python, javascript-typescript]
+        language: [rust, actions, python]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -148,18 +148,6 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
-      - name: Install Node for the authored UI assets
-        if: matrix.language == 'rust' || matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24'
-      - name: Build the assets required by Tauri source analysis
-        if: matrix.language == 'rust' || matrix.language == 'javascript-typescript'
-        working-directory: ui/html
-        run: |
-          npm ci
-          npm audit
-          npm run build
       - name: Install Rust analysis prerequisites
         if: matrix.language == 'rust'
         run: |
@@ -209,14 +197,6 @@ jobs:
           sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
           rustup toolchain install 1.90.0 --profile minimal
           rustup default 1.90.0
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24'
-      - name: Build authored UI assets for complete Rust analysis
-        working-directory: ui/html
-        run: |
-          npm ci
-          npm run build
       - name: Scan authored source with measured coverage
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
         env:

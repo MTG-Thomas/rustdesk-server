@@ -110,67 +110,14 @@ jobs:
           args: --release --all-features --target=x86_64-pc-windows-msvc
           use-cross: true
 
-      - name: Install NSIS
-        run: |
-          iwr -useb get.scoop.sh -outfile 'install.ps1'
-          .\install.ps1 -RunAsAdmin
-          scoop update
-          scoop bucket add extras
-          scoop install nsis
-
-      - name: Install Node.js
-        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
-        with:
-          node-version: 16
-
-      - name: Sign exe files
-        uses: GermanBluefox/code-sign-action@d64f4a6113360b53d3005b8f5e8701ef4a263dea # v7
-        if: false
-        with:
-          certificate: '${{ secrets.WINDOWS_PFX_BASE64 }}'
-          password: '${{ secrets.WINDOWS_PFX_PASSWORD }}'
-          certificatesha1: '${{ secrets.WINDOWS_PFX_SHA1_THUMBPRINT }}'
-          folder: 'target\x86_64-pc-windows-msvc\release'
-          recursive: false
-
-      - name: Build UI browser file
-        run: |
-          npm i
-          npm run build
-        working-directory: ./ui/html
-
-      - name: Build UI setup file
-        run: |
-          rustup default nightly
-          cargo build --release
-          xcopy /y ..\target\x86_64-pc-windows-msvc\release\*.exe setup\bin\
-          xcopy /y target\release\*.exe setup\
-          mkdir setup\logs
-          makensis /V1 setup.nsi
-          mkdir SignOutput
-          mv RustDeskServer.Setup.exe SignOutput\
-          mv ..\target\x86_64-pc-windows-msvc\release\*.exe SignOutput\
-        working-directory: ./ui
-
-      - name: Sign UI setup file 
-        uses: GermanBluefox/code-sign-action@d64f4a6113360b53d3005b8f5e8701ef4a263dea # v7
-        if: false
-        with:
-          certificate: '${{ secrets.WINDOWS_PFX_BASE64 }}'
-          password: '${{ secrets.WINDOWS_PFX_PASSWORD }}'
-          certificatesha1: '${{ secrets.WINDOWS_PFX_SHA1_THUMBPRINT }}'
-          folder: './ui/SignOutput'
-          recursive: false
-
-      - name: Publish Artifacts
+      - name: Publish server binaries
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binaries-windows-x86_64
           path: |
-            ui\SignOutput\hbbr.exe
-            ui\SignOutput\hbbs.exe
-            ui\SignOutput\rustdesk-utils.exe
-            ui\SignOutput\RustDeskServer.Setup.exe
+            target/x86_64-pc-windows-msvc/release/hbbr.exe
+            target/x86_64-pc-windows-msvc/release/hbbs.exe
+            target/x86_64-pc-windows-msvc/release/rustdesk-utils.exe
           if-no-files-found: error
 
   # github (draft) release with all binaries

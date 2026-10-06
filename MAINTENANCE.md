@@ -32,8 +32,8 @@ An audit build omits debug symbols to stay within the auditor's binary-size limi
 its embedded dependency metadata remains mandatory. Both complete lockfile and
 compiled-binary audits run without advisory ignores.
 
-CodeQL covers Rust, Actions, Python, and JavaScript/TypeScript. Authored UI assets
-are built before Rust extraction so Tauri macros can resolve their asset paths.
+CodeQL covers Rust, Actions, and Python. The legacy Tauri server-management GUI
+and its separate vulnerable Rust dependency graph have been retired.
 Review extraction diagnostics as well as finding counts: a successful upload with
 incomplete extraction does not qualify source analysis.
 
@@ -57,10 +57,9 @@ Before relying on Sonar for admission, verify project/analysis/head/base identit
 actual indexed files and imported coverage, effective exclusions, new-code policy,
 small-change behavior, and supported branch/PR analysis. Missing evidence is pending.
 
-Dependabot checks Cargo, Actions, submodules, and the authored npm UI on both
-maintained branches. Minor/patch updates are grouped; major updates remain separate
-for deliberate review. npm version updates use a seven-day patch/fourteen-day minor
-cooldown. Security updates remain eligible immediately.
+Dependabot checks Cargo, Actions, and submodules on both maintained branches.
+Minor/patch updates are grouped; major updates remain separate for deliberate
+review. Security updates remain eligible immediately.
 
 ## Image and delivery boundaries
 
