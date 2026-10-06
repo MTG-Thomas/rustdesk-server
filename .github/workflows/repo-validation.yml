@@ -30,6 +30,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p test_common_patch.py
           python3 -m unittest discover -s tests -p test_sonar_evidence.py
+          python3 -m unittest discover -s tests -p test_sonar_baseline.py
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
       - name: Install native build prerequisites
@@ -139,6 +140,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p test_common_patch.py
           python3 -m unittest discover -s tests -p test_sonar_evidence.py
+          python3 -m unittest discover -s tests -p test_sonar_baseline.py
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
       - name: Install Node for the authored UI assets
@@ -173,8 +175,8 @@ jobs:
 
   sonar:
     name: Sonar / Rust source and coverage
-    needs: [rust, sonar-baseline]
-    if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: [rust, sonar-baseline, sonar-maintained-baseline]
+    if: ${{ !cancelled() && needs.rust.result == 'success' && needs.sonar-baseline.result == 'success' && (needs.sonar-maintained-baseline.result == 'success' || needs.sonar-maintained-baseline.result == 'skipped') && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -225,81 +227,22 @@ jobs:
           name: sonar-task-receipt
           path: .scannerwork/report-task.txt
           if-no-files-found: error
+          include-hidden-files: true
 
   sonar-baseline:
-    name: Sonar / initialize original master baseline
+    name: Sonar / original master baseline
     if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    concurrency:
-      group: sonar-baseline-${{ github.repository }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Inspect the existing main-branch analysis
-        id: baseline
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: python3 scripts/sonar_baseline.py inspect
-      - name: Check out the original default branch for initial analysis
-        if: steps.baseline.outputs.needed == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          submodules: recursive
-          fetch-depth: 0
-          ref: a7736be5e40f85bfc141120dce587e836e5d4b80
-          path: baseline
-      - name: Measure the original default branch without changing its source
-        if: steps.baseline.outputs.needed == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup component add llvm-tools-preview --toolchain 1.90.0
-          cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
-          rustup default 1.90.0
-          python3 -c "from pathlib import Path; p=Path('sonar-project.properties'); Path('baseline/sonar-project.properties').write_text('\\n'.join(line for line in p.read_text().splitlines() if not line.startswith('sonar.rust.clippyReport.'))+'\\n')"
-          cd baseline
-          mkdir -p artifacts
-          cargo +1.90.0 llvm-cov --locked --workspace --all-features --remap-path-prefix --ignore-filename-regex '(^|/)(target/|src/version\.rs$)' --lcov --output-path artifacts/lcov.info
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        if: steps.baseline.outputs.needed == 'true'
-        with:
-          node-version: '24'
-      - name: Prepare the original UI assets for baseline source analysis
-        if: steps.baseline.outputs.needed == 'true'
-        working-directory: baseline/ui/html
-        run: |
-          npm ci
-          npm run build
-      - name: Submit the original master analysis as report-only backlog
-        if: steps.baseline.outputs.needed == 'true'
-        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_EVENT_NAME: push
-          GITHUB_REF: refs/heads/master
-          GITHUB_SHA: a7736be5e40f85bfc141120dce587e836e5d4b80
-        with:
-          projectBaseDir: baseline
-          args: >-
-            -Dsonar.branch.name=master
-            -Dsonar.scm.revision=a7736be5e40f85bfc141120dce587e836e5d4b80
-      - name: Verify the baseline compute task completed
-        if: steps.baseline.outputs.needed == 'true'
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: python3 scripts/sonar_baseline.py wait baseline/.scannerwork/report-task.txt
-      - name: Preserve initial baseline reports and task receipt
-        if: always() && steps.baseline.outputs.needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: sonar-original-master-baseline
-          path: |
-            baseline/artifacts/
-            baseline/.scannerwork/report-task.txt
-          if-no-files-found: error
+    uses: ./.github/workflows/sonar-baseline.yml
+    with:
+      branch: master
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  sonar-maintained-baseline:
+    name: Sonar / original maintained baseline
+    needs: sonar-baseline
+    if: github.event_name != 'merge_group' && (github.event.pull_request.base.ref || github.ref_name) == 'codex/websocket-registration' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/sonar-baseline.yml
+    with:
+      branch: codex/websocket-registration
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

@@ -44,8 +44,11 @@ report digests. Fork pull requests receive no scanning credentials. Generated
 version/protobuf build output is excluded from the LCOV import; authored server
 and common-library source remain covered by analysis.
 
-A new Sonar project is initialized once from original `master` commit
+A new Sonar project is initialized from original `master` commit
 `a7736be5e40f85bfc141120dce587e836e5d4b80`, with its actual tests and coverage.
+The maintained branch is separately initialized from
+`5997e8c1f90b1af62e7e6e293d79cdc0b938d9d1` before its PRs are analyzed, so
+its changes are compared with that branch rather than the newer default source.
 Existing backlog is report-only; this initialization is not a clean quality-gate
 attestation or a merge/deployment candidate. Candidate scans await their own gate.
 Before relying on Sonar for admission, verify project/analysis/head/base identity,
