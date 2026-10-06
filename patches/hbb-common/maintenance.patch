@@ -1,8 +1,23 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 6ad3012..0a20811 100644
+index 6ad3012..4000102 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -58,9 +58,9 @@ tokio-rustls = { version = "0.26", features = [
+@@ -33,13 +33,12 @@ lazy_static = "1.5"
+ confy = { git = "https://github.com/rustdesk-org/confy" }
+ dirs-next = "2.0"
+ filetime = "0.2"
+-sodiumoxide = "0.2"
++libsodium-rs = "=0.2.5"
+ regex = "1.11"
+ tokio-socks = { git = "https://github.com/rustdesk-org/tokio-socks" }
+ chrono = "0.4"
+ backtrace = "0.3"
+ libc = "0.2"
+-dlopen = "0.1"
+ toml = "0.7"
+ uuid = { version = "1.16", features = ["v4"] }
+ # new sysinfo issue: https://github.com/rustdesk/rustdesk/pull/6330#issuecomment-2270871442
+@@ -58,27 +57,27 @@ tokio-rustls = { version = "0.26", features = [
      "ring",
  ], default-features = false }
  tokio-native-tls = "0.3"
@@ -15,7 +30,28 @@ index 6ad3012..0a20811 100644
  rustls-pki-types = "1.11"
  rustls-native-certs = "0.8"
  webpki-roots = "1.0.4"
-@@ -96,5 +96,5 @@ osascript = "0.3"
+ async-recursion = "1.1"
+-webrtc = { version = "0.14.0", optional = true }
++webrtc = { version = "0.17.0", optional = true }
+ libloading = "0.8"
+ 
+ [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+ mac_address = "1.1"
+ default_net = { git = "https://github.com/rustdesk-org/default_net" }
+-machine-uid = { git = "https://github.com/rustdesk-org/machine-uid" }
++machine-uid = "=0.6.0"
+ 
+ [build-dependencies]
+ protobuf-codegen = { version = "3.7" }
+ 
+ [dev-dependencies]
+ clap = "4.5.51"
+-webrtc = "0.14.0"
++webrtc = "0.17.0"
+ 
+ [target.'cfg(target_os = "windows")'.dependencies]
+ winapi = { version = "0.3", features = [
+@@ -96,5 +95,5 @@ osascript = "0.3"
  sctk = { package = "smithay-client-toolkit", version = "0.20.0", default-features = false, features = [
      "calloop",
  ] }
@@ -48,10 +84,27 @@ index 2c993ca..b253537 100644
                  local_endpoint
              )
 diff --git a/src/config.rs b/src/config.rs
-index 707bbe0..1a87651 100644
+index 707bbe0..7ec5c08 100644
 --- a/src/config.rs
 +++ b/src/config.rs
-@@ -957,7 +957,7 @@ impl Config {
+@@ -9,6 +9,7 @@ use std::{
+     time::{Duration, Instant, SystemTime},
+ };
+ 
++use crate::encoding as base64;
+ use anyhow::{anyhow, Result};
+ use bytes::Bytes;
+ use rand::Rng;
+@@ -16,8 +17,6 @@ use regex::Regex;
+ use serde as de;
+ use serde_derive::{Deserialize, Serialize};
+ use serde_json;
+-use sodiumoxide::base64;
+-use sodiumoxide::crypto::sign;
+ 
+ mod permanent_password;
+ 
+@@ -957,7 +956,7 @@ impl Config {
                  return ss;
              }
          }
@@ -60,7 +113,18 @@ index 707bbe0..1a87651 100644
      }
  
      pub fn reset_online() {
-@@ -1296,10 +1296,9 @@ impl Config {
+@@ -1126,8 +1125,8 @@ impl Config {
+         let mut config = Config::load_::<Config>("");
+         if config.key_pair.0.is_empty() {
+             log::info!("Generated new keypair for id: {}", config.id);
+-            let (pk, sk) = sign::gen_keypair();
+-            let key_pair = (sk.0.to_vec(), pk.0.into());
++            let (pk, sk) = crate::generate_signing_keypair();
++            let key_pair = (sk.as_bytes().to_vec(), pk.as_bytes().to_vec());
+             config.key_pair = key_pair.clone();
+             std::thread::spawn(|| {
+                 let mut config = CONFIG.write().unwrap();
+@@ -1296,10 +1295,9 @@ impl Config {
          }
          let (preset_storage, preset_salt) = Self::get_preset_password_storage_and_salt();
          if preset_permanent_password_storage_matches_plain(&preset_storage, &preset_salt, password)
@@ -73,7 +137,7 @@ index 707bbe0..1a87651 100644
          }
  
          let mut config = CONFIG.write().unwrap();
-@@ -1492,7 +1491,7 @@ impl Config {
+@@ -1492,7 +1490,7 @@ impl Config {
                      .read()
                      .unwrap()
                      .get(key)
@@ -82,7 +146,7 @@ index 707bbe0..1a87651 100644
              };
              let contains_url = DEFAULT_SETTINGS
                  .read()
-@@ -1622,8 +1621,8 @@ impl Config {
+@@ -1622,8 +1620,8 @@ impl Config {
          trusted_devices.retain(|d| !d.outdate());
          let devices = serde_json::to_string(&trusted_devices).unwrap_or_default();
          let max_len = 1024 * 1024;
@@ -93,7 +157,7 @@ index 707bbe0..1a87651 100644
              return;
          }
          let devices = encrypt_str_or_original(&devices, PASSWORD_ENC_VERSION, max_len);
-@@ -1640,7 +1639,7 @@ impl Config {
+@@ -1640,7 +1638,7 @@ impl Config {
          Self::set_trusted_devices(devices);
      }
  
@@ -102,7 +166,7 @@ index 707bbe0..1a87651 100644
          let mut devices = Self::get_trusted_devices();
          devices.retain(|d| !hwids.contains(&d.hwid));
          Self::set_trusted_devices(devices);
-@@ -1895,7 +1894,7 @@ impl PeerConfig {
+@@ -1895,7 +1893,7 @@ impl PeerConfig {
      }
  
      pub fn batch_peers(
@@ -111,7 +175,7 @@ index 707bbe0..1a87651 100644
          from: usize,
          to: Option<usize>,
      ) -> (Vec<(String, SystemTime, PeerConfig)>, usize) {
-@@ -1916,11 +1915,11 @@ impl PeerConfig {
+@@ -1916,11 +1914,11 @@ impl PeerConfig {
          let peers: Vec<_> = all[from..to]
              .iter()
              .map(|(id, t, p)| {
@@ -125,7 +189,7 @@ index 707bbe0..1a87651 100644
              })
              .filter(|p| !p.2.info.platform.is_empty())
              .collect();
-@@ -2008,7 +2007,7 @@ impl PeerConfig {
+@@ -2008,7 +2006,7 @@ impl PeerConfig {
          D: de::Deserializer<'de>,
      {
          let v: i32 = de::Deserialize::deserialize(deserializer)?;
@@ -134,7 +198,7 @@ index 707bbe0..1a87651 100644
              Ok(v)
          } else {
              Ok(Self::default_trackpad_speed())
-@@ -2026,7 +2025,7 @@ impl PeerConfig {
+@@ -2026,7 +2024,7 @@ impl PeerConfig {
          D: de::Deserializer<'de>,
      {
          let v: i32 = de::Deserialize::deserialize(deserializer)?;
@@ -143,7 +207,7 @@ index 707bbe0..1a87651 100644
              Ok(v)
          } else {
              Ok(Self::default_edge_scroll_edge_thickness())
-@@ -2764,7 +2763,7 @@ fn is_option_can_save(
+@@ -2764,7 +2762,7 @@ fn is_option_can_save(
      v: &str,
  ) -> bool {
      if overwrite.read().unwrap().contains_key(k)
@@ -152,7 +216,7 @@ index 707bbe0..1a87651 100644
      {
          return false;
      }
-@@ -2777,7 +2776,7 @@ pub fn is_incoming_only() -> bool {
+@@ -2777,7 +2775,7 @@ pub fn is_incoming_only() -> bool {
          .read()
          .unwrap()
          .get("conn-type")
@@ -161,7 +225,7 @@ index 707bbe0..1a87651 100644
  }
  
  #[inline]
-@@ -2786,7 +2785,7 @@ pub fn is_outgoing_only() -> bool {
+@@ -2786,7 +2784,7 @@ pub fn is_outgoing_only() -> bool {
          .read()
          .unwrap()
          .get("conn-type")
@@ -170,7 +234,7 @@ index 707bbe0..1a87651 100644
  }
  
  #[inline]
-@@ -2795,7 +2794,7 @@ fn is_some_hard_opton(name: &str) -> bool {
+@@ -2795,7 +2793,7 @@ fn is_some_hard_opton(name: &str) -> bool {
          .read()
          .unwrap()
          .get(name)
@@ -179,7 +243,7 @@ index 707bbe0..1a87651 100644
  }
  
  #[inline]
-@@ -3386,8 +3385,10 @@ mod tests {
+@@ -3386,8 +3384,10 @@ mod tests {
          let storage = "00".to_owned() + &base64::encode(h1, base64::Variant::Original);
          let hard_settings = HashMap::from([("password".to_owned(), storage.clone())]);
  
@@ -192,7 +256,7 @@ index 707bbe0..1a87651 100644
  
          with_config_and_hard_settings(config, hard_settings, || {
              assert!(Config::has_permanent_password());
-@@ -3400,8 +3401,10 @@ mod tests {
+@@ -3400,8 +3400,10 @@ mod tests {
      #[test]
      fn test_local_hashed_permanent_password_without_salt_is_not_reported_as_set() {
          let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
@@ -205,7 +269,7 @@ index 707bbe0..1a87651 100644
  
          with_config_and_hard_settings(config, HashMap::new(), || {
              assert!(!Config::has_permanent_password());
-@@ -3413,8 +3416,10 @@ mod tests {
+@@ -3413,8 +3415,10 @@ mod tests {
      #[test]
      fn test_invalid_local_hashed_password_does_not_generate_effective_salt() {
          let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
@@ -218,7 +282,7 @@ index 707bbe0..1a87651 100644
  
          with_config_and_hard_settings(config, HashMap::new(), || {
              assert_eq!(Config::get_effective_permanent_password_salt(), "");
-@@ -3427,8 +3432,10 @@ mod tests {
+@@ -3427,8 +3431,10 @@ mod tests {
  
      #[test]
      fn test_legacy_plain_preset_password_uses_local_salt_for_challenge() {
@@ -231,7 +295,7 @@ index 707bbe0..1a87651 100644
          let hard_settings = HashMap::from([("password".to_owned(), "legacy-password".to_owned())]);
  
          with_config_and_hard_settings(config, hard_settings, || {
-@@ -3460,9 +3467,11 @@ mod tests {
+@@ -3460,9 +3466,11 @@ mod tests {
  
      #[test]
      fn test_validate_or_decrypt_keeps_plaintext_permanent_password_unchanged() {
@@ -246,7 +310,7 @@ index 707bbe0..1a87651 100644
          Config::validate_or_decrypt_permanent_password_storage(&mut cfg).unwrap();
          assert_eq!(cfg.password, "p@ssw0rd");
          assert!(cfg.salt.is_empty());
-@@ -3491,10 +3500,12 @@ mod tests {
+@@ -3491,10 +3499,12 @@ mod tests {
          .unwrap();
          *invalid_payload.last_mut().unwrap() ^= 1;
  
@@ -263,7 +327,7 @@ index 707bbe0..1a87651 100644
  
          assert!(Config::validate_or_decrypt_permanent_password_storage(&mut cfg).is_err());
      }
-@@ -3533,9 +3544,11 @@ mod tests {
+@@ -3533,9 +3543,11 @@ mod tests {
  
      #[test]
      fn test_store_keeps_existing_enc_id_when_id_is_unchanged() {
@@ -278,7 +342,7 @@ index 707bbe0..1a87651 100644
          let original_enc_id = cfg.enc_id.clone();
  
          with_config_and_hard_settings(Config::default(), HashMap::new(), || {
-@@ -3550,8 +3563,10 @@ mod tests {
+@@ -3550,8 +3562,10 @@ mod tests {
      fn test_store_rewrites_enc_id_when_id_changes() {
          let original_id = "123456789";
          let updated_id = "987654321";
@@ -291,7 +355,7 @@ index 707bbe0..1a87651 100644
          let original_enc_id =
              encrypt_str_or_original(original_id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
          cfg.enc_id = original_enc_id.clone();
-@@ -3594,9 +3609,11 @@ mod tests {
+@@ -3594,9 +3608,11 @@ mod tests {
  
      #[test]
      fn test_set_does_not_convert_plaintext_permanent_password_to_storage_format_in_memory() {
@@ -306,7 +370,7 @@ index 707bbe0..1a87651 100644
  
          with_config_and_hard_settings(Config::default(), HashMap::new(), || {
              assert!(Config::set(cfg));
-@@ -3610,9 +3627,11 @@ mod tests {
+@@ -3610,9 +3626,11 @@ mod tests {
  
      #[test]
      fn test_set_keeps_plaintext_permanent_password_with_current_prefix_in_memory() {
@@ -321,7 +385,7 @@ index 707bbe0..1a87651 100644
  
          with_config_and_hard_settings(Config::default(), HashMap::new(), || {
              assert!(Config::set(cfg));
-@@ -3638,8 +3657,10 @@ mod tests {
+@@ -3638,8 +3656,10 @@ mod tests {
  
      #[test]
      fn test_permanent_password_sync_treats_same_encrypted_hash_as_unchanged() {
@@ -334,7 +398,16 @@ index 707bbe0..1a87651 100644
          let h1 = compute_permanent_password_h1("p@ssw0rd", &cfg.salt);
          let encrypted_hash_storage =
              encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
-@@ -3695,9 +3716,11 @@ mod tests {
+@@ -3670,7 +3690,7 @@ mod tests {
+ 
+     #[test]
+     fn test_permanent_password_sync_rejects_non_current_storage_payloads() {
+-        let invalid_payload = vec![42u8; sodiumoxide::crypto::secretbox::MACBYTES + 1];
++        let invalid_payload = vec![42u8; libsodium_rs::crypto_secretbox::MACBYTES + 1];
+         let invalid_storage = PERMANENT_PASSWORD_ENC_VERSION.to_owned()
+             + &base64::encode(invalid_payload, base64::Variant::Original);
+         let encrypted_legacy_plaintext =
+@@ -3695,9 +3715,11 @@ mod tests {
              assert!(cfg.salt.is_empty());
          }
  
@@ -349,7 +422,7 @@ index 707bbe0..1a87651 100644
          assert!(Config::apply_permanent_password_storage_for_sync(
              &mut cfg,
              &invalid_storage,
-@@ -3725,9 +3748,11 @@ mod tests {
+@@ -3725,9 +3747,11 @@ mod tests {
      fn test_permanent_password_sync_empty_storage_clears_existing_password() {
          let salt = "salt123";
          let h1 = compute_permanent_password_h1("p@ssw0rd", salt);
@@ -364,7 +437,7 @@ index 707bbe0..1a87651 100644
  
          assert!(Config::apply_permanent_password_storage_for_sync(&mut cfg, "", "").unwrap());
          assert!(cfg.password.is_empty());
-@@ -3738,9 +3763,11 @@ mod tests {
+@@ -3738,9 +3762,11 @@ mod tests {
      fn test_permanent_password_sync_empty_storage_uses_incoming_salt() {
          let old_salt = "old-salt";
          let h1 = compute_permanent_password_h1("p@ssw0rd", old_salt);
@@ -379,7 +452,7 @@ index 707bbe0..1a87651 100644
  
          assert!(
              Config::apply_permanent_password_storage_for_sync(&mut cfg, "", "new-salt").unwrap()
-@@ -3786,7 +3813,7 @@ mod tests {
+@@ -3786,7 +3812,7 @@ mod tests {
          res.insert("d".to_owned(), "c".to_string());
          res.insert("c".to_owned(), "a".to_string());
          Config::purify_options(&mut res);
@@ -388,7 +461,7 @@ index 707bbe0..1a87651 100644
          res.insert("b".to_owned(), "c".to_string());
          res.insert("d".to_owned(), "c".to_string());
          res.insert("c".to_owned(), "a".to_string());
-@@ -3985,15 +4012,15 @@ mod tests {
+@@ -3985,15 +4011,15 @@ mod tests {
      fn test_store_load() {
          let peerconfig_id = "123456789";
          let cfg: PeerConfig = Default::default();
@@ -407,6 +480,45 @@ index 707bbe0..1a87651 100644
                      .expect("reading metadata failed")
                      .permissions()
                      .mode()
+@@ -4016,8 +4042,7 @@ mod tests {
+         let app_name = APP_NAME.read().unwrap().clone();
+         assert!(
+             path_root.starts_with(&format!("/tmp/{app_name}-service/")),
+-            "unexpected uinput ipc path: {}",
+-            path_root
++            "unexpected uinput ipc path"
+         );
+ 
+         let non_service_root = Config::ipc_path_for_uid(ROOT_UID, "");
+diff --git a/src/config/permanent_password.rs b/src/config/permanent_password.rs
+index 5fbca25..8cf0e1e 100644
+--- a/src/config/permanent_password.rs
++++ b/src/config/permanent_password.rs
+@@ -1,5 +1,5 @@
++use crate::encoding as base64;
+ use sha2::{Digest, Sha256};
+-use sodiumoxide::base64;
+ 
+ use crate::{
+     log,
+@@ -34,7 +34,7 @@ pub fn compute_permanent_password_h1(
+ }
+ 
+ pub(super) fn constant_time_eq_32(a: &[u8; 32], b: &[u8; 32]) -> bool {
+-    sodiumoxide::utils::memcmp(a, b)
++    libsodium_rs::utils::memcmp(a, b)
+ }
+ 
+ pub(super) fn encode_permanent_password_storage_from_h1(
+@@ -398,7 +398,7 @@ mod tests {
+ 
+     #[test]
+     fn test_password_is_empty_or_not_hashed_treats_locked_00_storage_as_hashed() {
+-        let invalid_payload = vec![42u8; sodiumoxide::crypto::secretbox::MACBYTES + 1];
++        let invalid_payload = vec![42u8; libsodium_rs::crypto_secretbox::MACBYTES + 1];
+         let locked_storage = PASSWORD_ENC_VERSION.to_owned()
+             + &base64::encode(invalid_payload, base64::Variant::Original);
+ 
 diff --git a/src/fingerprint.rs b/src/fingerprint.rs
 index 2d8985e..d41ba49 100644
 --- a/src/fingerprint.rs
@@ -636,10 +748,32 @@ index 3dcc1c6..c72cb76 100644
      } else {
          bail!("{path:?} not exists");
 diff --git a/src/lib.rs b/src/lib.rs
-index 2b35642..ed09b24 100644
+index 2b35642..7599beb 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -58,9 +58,9 @@ pub use uuid;
+@@ -30,11 +30,11 @@ pub mod config;
+ pub mod fs;
+ pub mod mem;
+ pub use lazy_static;
++pub use libsodium_rs;
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+ pub use mac_address;
+ pub use rand;
+ pub use regex;
+-pub use sodiumoxide;
+ pub use tokio_socks;
+ pub use tokio_socks::IntoTargetAddr;
+ pub use tokio_socks::TargetAddr;
+@@ -45,8 +45,6 @@ pub use libc;
+ pub mod keyboard;
+ pub use base64;
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+-pub use dlopen;
+-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+ pub use machine_uid;
+ pub use serde_derive;
+ pub use serde_json;
+@@ -58,9 +56,9 @@ pub use uuid;
  pub mod fingerprint;
  pub use flexi_logger;
  pub mod stream;
@@ -650,7 +784,7 @@ index 2b35642..ed09b24 100644
  #[cfg(any(target_os = "android", target_os = "ios"))]
  pub use rustls_platform_verifier;
  pub use stream::Stream;
-@@ -68,9 +68,9 @@ pub use whoami;
+@@ -68,9 +66,9 @@ pub use whoami;
  pub mod tls;
  pub mod verifier;
  pub use async_recursion;
@@ -661,7 +795,7 @@ index 2b35642..ed09b24 100644
  #[cfg(target_os = "linux")]
  pub use x11;
  
-@@ -122,7 +122,6 @@ pub type ResultType<F, E = anyhow::Error> = anyhow::Result<F, E>;
+@@ -122,7 +120,6 @@ pub type ResultType<F, E = anyhow::Error> = anyhow::Result<F, E>;
  
  /// Certain router and firewalls scan the packet and if they
  /// find an IP address belonging to their pool that they use to do the NAT mapping/translation, so here we mangle the ip address
@@ -669,7 +803,7 @@ index 2b35642..ed09b24 100644
  pub struct AddrMangle();
  
  #[inline]
-@@ -189,7 +188,7 @@ impl AddrMangle {
+@@ -189,7 +186,7 @@ impl AddrMangle {
          let mut padded = [0u8; 16];
          padded[..bytes.len()].copy_from_slice(bytes);
          let number = u128::from_le_bytes(padded);
@@ -678,7 +812,7 @@ index 2b35642..ed09b24 100644
          let ip = (((number >> 49) - tm) as u32).to_le_bytes();
          let port = (number & 0xFFFFFF) - (tm & 0xFFFF);
          SocketAddr::V4(SocketAddrV4::new(
-@@ -229,7 +228,7 @@ pub fn gen_version() {
+@@ -229,7 +226,7 @@ pub fn gen_version() {
      println!("cargo:rerun-if-changed=Cargo.toml");
      use std::io::prelude::*;
      let mut file = File::create("./src/version.rs").unwrap();
@@ -687,7 +821,7 @@ index 2b35642..ed09b24 100644
          let ab: Vec<&str> = line.split('=').map(|x| x.trim()).collect();
          if ab.len() == 2 && ab[0] == "version" {
              file.write_all(format!("pub const VERSION: &str = {};\n", ab[1]).as_bytes())
-@@ -432,7 +431,10 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+@@ -432,7 +429,10 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
          #[cfg(debug_assertions)]
          {
              use env_logger::*;
@@ -699,7 +833,7 @@ index 2b35642..ed09b24 100644
          }
          #[cfg(not(debug_assertions))]
          {
-@@ -447,7 +449,9 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+@@ -447,7 +447,9 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
                  path.push(_name);
              }
              use flexi_logger::*;
@@ -710,11 +844,64 @@ index 2b35642..ed09b24 100644
                  logger_holder = x
                      .log_to_file(FileSpec::default().directory(path))
                      .write_mode(if _is_async {
+@@ -631,3 +633,35 @@ mod test {
+         assert_eq!(get_version_number("1.2.3"), 1002030);
+     }
+ }
++
++/// Preserve the upstream infallible key-generation contract. An unavailable
++/// cryptographic runtime is fatal: never return empty or predictable keys.
++pub fn generate_signing_keypair() -> (
++    libsodium_rs::crypto_sign::PublicKey,
++    libsodium_rs::crypto_sign::SecretKey,
++) {
++    match libsodium_rs::crypto_sign::KeyPair::generate() {
++        Ok(pair) => (pair.public_key, pair.secret_key),
++        Err(_) => {
++            log::error!("Cryptographic key generation failed");
++            std::process::abort();
++        }
++    }
++}
++
++/// Standard padded Base64 used by existing persisted passwords and IDs.
++pub mod encoding {
++    use base64::{engine::general_purpose::STANDARD, Engine};
++    pub enum Variant {
++        Original,
++    }
++    pub fn encode<T: AsRef<[u8]>>(data: T, _variant: Variant) -> String {
++        STANDARD.encode(data)
++    }
++    pub fn decode<T: AsRef<[u8]>>(
++        data: T,
++        _variant: Variant,
++    ) -> Result<Vec<u8>, base64::DecodeError> {
++        STANDARD.decode(data)
++    }
++}
 diff --git a/src/password_security.rs b/src/password_security.rs
-index 3f5f324..e84e197 100644
+index 3f5f324..50bd638 100644
 --- a/src/password_security.rs
 +++ b/src/password_security.rs
-@@ -136,15 +136,13 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
+@@ -1,5 +1,6 @@
+ use crate::config::Config;
+-use sodiumoxide::{base64, crypto::secretbox};
++use crate::encoding as base64;
++use libsodium_rs::crypto_secretbox as secretbox;
+ use std::sync::{Arc, RwLock};
+ 
+ lazy_static::lazy_static! {
+@@ -109,7 +110,7 @@ fn is_encrypted(v: &[u8]) -> bool {
+         return false;
+     }
+     match base64::decode(&v[VERSION_LEN..], base64::Variant::Original) {
+-        Ok(decoded) => decoded.len() >= sodiumoxide::crypto::secretbox::MACBYTES,
++        Ok(decoded) => decoded.len() >= libsodium_rs::crypto_secretbox::MACBYTES,
+         Err(_) => false,
+     }
+ }
+@@ -136,15 +137,13 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
  // note: s.len() return length in bytes, s.chars().count() return char count
  //       &[..2] return the left 2 bytes, s.chars().take(2) return the left 2 chars
  pub fn decrypt_str_or_original(s: &str, current_version: &str) -> (String, bool, bool) {
@@ -737,7 +924,7 @@ index 3f5f324..e84e197 100644
          }
      }
  
-@@ -195,7 +193,9 @@ pub fn decrypt_vec_or_original(v: &[u8], current_version: &str) -> (Vec<u8>, boo
+@@ -195,7 +194,9 @@ pub fn decrypt_vec_or_original(v: &[u8], current_version: &str) -> (Vec<u8>, boo
  
  fn encrypt(v: &[u8]) -> Result<String, ()> {
      if !v.is_empty() {
@@ -748,12 +935,13 @@ index 3f5f324..e84e197 100644
      } else {
          Err(())
      }
-@@ -203,13 +203,22 @@ fn encrypt(v: &[u8]) -> Result<String, ()> {
+@@ -203,27 +204,36 @@ fn encrypt(v: &[u8]) -> Result<String, ()> {
  
  fn decrypt(v: &[u8]) -> Result<Vec<u8>, ()> {
      if !v.is_empty() {
 -        base64::decode(v, base64::Variant::Original).and_then(|v| symmetric_crypt(&v, false))
 +        base64::decode(v, base64::Variant::Original)
++            .map_err(|_| ())
 +            .and_then(|v| symmetric_crypt(&v, false).map_err(|_| ()))
      } else {
          Err(())
@@ -761,6 +949,8 @@ index 3f5f324..e84e197 100644
  }
  
 -pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
+-    use sodiumoxide::crypto::secretbox;
+-    use std::convert::TryInto;
 +#[derive(Debug, thiserror::Error)]
 +#[error("symmetric encryption or authentication failed")]
 +pub struct SymmetricCryptError;
@@ -770,11 +960,216 @@ index 3f5f324..e84e197 100644
 +}
 +
 +fn symmetric_crypt_inner(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
-     use sodiumoxide::crypto::secretbox;
-     use std::convert::TryInto;
++    use libsodium_rs::crypto_secretbox as secretbox;
  
+     let uuid = crate::get_uuid();
+     let mut keybuf = uuid.clone();
+     keybuf.resize(secretbox::KEYBYTES, 0);
+-    let key = secretbox::Key(keybuf.try_into().map_err(|_| ())?);
++    let key = secretbox::Key::from_bytes(&keybuf).map_err(|_| ())?;
+ 
+     if encrypt {
+-        let nonce = secretbox::gen_nonce();
++        let nonce = secretbox::Nonce::generate();
+         let encrypted = secretbox::seal(data, &nonce, &key);
+-        let mut output = Vec::with_capacity(1 + nonce.0.len() + encrypted.len());
++        let mut output = Vec::with_capacity(1 + nonce.as_bytes().len() + encrypted.len());
+         output.push(FORMAT_V1);
+-        output.extend(nonce.0);
++        output.extend(nonce.as_bytes());
+         output.extend(encrypted);
+         Ok(output)
+     } else {
+@@ -236,7 +246,7 @@ pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
+                 if pk != uuid {
+                     let mut keybuf = pk;
+                     keybuf.resize(secretbox::KEYBYTES, 0);
+-                    let pk_key = secretbox::Key(keybuf.try_into().map_err(|_| ())?);
++                    let pk_key = secretbox::Key::from_bytes(&keybuf).map_err(|_| ())?;
+                     return open_secretbox_payload(data, &pk_key);
+                 }
+             }
+@@ -251,14 +261,14 @@ fn open_secretbox_payload(data: &[u8], key: &secretbox::Key) -> Result<Vec<u8>,
+     {
+         let mut nonce = [0u8; secretbox::NONCEBYTES];
+         nonce.copy_from_slice(&data[1..1 + secretbox::NONCEBYTES]);
+-        let nonce = secretbox::Nonce(nonce);
++        let nonce = secretbox::Nonce::from_bytes(nonce);
+         if let Ok(decrypted) = secretbox::open(&data[1 + secretbox::NONCEBYTES..], &nonce, key) {
+             return Ok(decrypted);
+         }
+     }
+ 
+-    let legacy_nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
+-    secretbox::open(data, &legacy_nonce, key)
++    let legacy_nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
++    secretbox::open(data, &legacy_nonce, key).map_err(|_| ())
+ }
+ 
+ mod test {
+@@ -348,9 +358,8 @@ mod test {
+ 
+         // When decoded length reaches MACBYTES, it is treated as encrypted-like
+         // and should not trigger repeated store.
+-        let exact_mac = vec![0u8; sodiumoxide::crypto::secretbox::MACBYTES];
+-        let exact_mac_b64 =
+-            sodiumoxide::base64::encode(&exact_mac, sodiumoxide::base64::Variant::Original);
++        let exact_mac = vec![0u8; libsodium_rs::crypto_secretbox::MACBYTES];
++        let exact_mac_b64 = crate::encoding::encode(&exact_mac, crate::encoding::Variant::Original);
+         let data = format!("00{exact_mac_b64}");
+         let (_, succ, store) = decrypt_str_or_original(&data, version);
+         assert!(!succ);
+@@ -397,8 +406,8 @@ mod test {
+     #[test]
+     fn test_is_encrypted() {
+         use super::*;
+-        use sodiumoxide::base64::{encode, Variant};
+-        use sodiumoxide::crypto::secretbox;
++        use crate::encoding::{encode, Variant};
++        use libsodium_rs::crypto_secretbox as secretbox;
+ 
+         // Empty data should not be considered encrypted
+         assert!(!is_encrypted(b""));
+@@ -440,8 +449,8 @@ mod test {
+     #[test]
+     fn test_encrypted_payload_min_len_macbytes() {
+         use super::*;
+-        use sodiumoxide::base64::{decode, Variant};
+-        use sodiumoxide::crypto::secretbox;
++        use crate::encoding::{decode, Variant};
++        use libsodium_rs::crypto_secretbox as secretbox;
+ 
+         let version = "00";
+         let max_len = 128;
+@@ -483,14 +492,13 @@ mod test {
+     #[test]
+     fn test_decrypt_legacy_zero_nonce_payload() {
+         use super::*;
+-        use std::convert::TryInto;
+ 
+         let data = b"test password 123";
+         let uuid = crate::get_uuid();
+         let mut keybuf = uuid.clone();
+         keybuf.resize(secretbox::KEYBYTES, 0);
+-        let key = secretbox::Key(keybuf.try_into().unwrap());
+-        let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
++        let key = secretbox::Key::from_bytes(&keybuf).unwrap();
++        let nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
+         let encrypted = secretbox::seal(data, &nonce, &key);
+ 
+         assert_eq!(symmetric_crypt(&encrypted, false).unwrap(), data);
+@@ -499,12 +507,11 @@ mod test {
+     #[test]
+     fn test_decrypt_legacy_payload_starting_with_v1_marker() {
+         use super::*;
+-        use std::convert::TryInto;
+ 
+         let mut keybuf = crate::get_uuid();
+         keybuf.resize(secretbox::KEYBYTES, 0);
+-        let key = secretbox::Key(keybuf.try_into().unwrap());
+-        let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
++        let key = secretbox::Key::from_bytes(&keybuf).unwrap();
++        let nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
+ 
+         for i in 0..=u16::MAX {
+             let data = format!("legacy collision payload {i:05}");
+@@ -530,15 +537,14 @@ mod test {
+     #[test]
+     fn test_decrypt_legacy_string_does_not_request_store() {
+         use super::*;
+-        use sodiumoxide::base64::{encode, Variant};
+-        use std::convert::TryInto;
++        use crate::encoding::{encode, Variant};
+ 
+         let data = "test password 123";
+         let uuid = crate::get_uuid();
+         let mut keybuf = uuid.clone();
+         keybuf.resize(secretbox::KEYBYTES, 0);
+-        let key = secretbox::Key(keybuf.try_into().unwrap());
+-        let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
++        let key = secretbox::Key::from_bytes(&keybuf).unwrap();
++        let nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
+         let encrypted = secretbox::seal(data.as_bytes(), &nonce, &key);
+         let encrypted = "00".to_owned() + &encode(encrypted, Variant::Original);
+ 
+@@ -552,15 +558,14 @@ mod test {
+     #[test]
+     fn test_decrypt_legacy_vec_does_not_request_store() {
+         use super::*;
+-        use sodiumoxide::base64::{encode, Variant};
+-        use std::convert::TryInto;
++        use crate::encoding::{encode, Variant};
+ 
+         let data = b"test password 123";
+         let uuid = crate::get_uuid();
+         let mut keybuf = uuid.clone();
+         keybuf.resize(secretbox::KEYBYTES, 0);
+-        let key = secretbox::Key(keybuf.try_into().unwrap());
+-        let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
++        let key = secretbox::Key::from_bytes(&keybuf).unwrap();
++        let nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
+         let encrypted = secretbox::seal(data, &nonce, &key);
+         let encrypted = ("00".to_owned() + &encode(encrypted, Variant::Original)).into_bytes();
+ 
+@@ -575,8 +580,7 @@ mod test {
+     #[test]
+     #[cfg(not(any(target_os = "android", target_os = "ios")))]
+     fn test_decrypt_with_pk_fallback() {
+-        use sodiumoxide::crypto::secretbox;
+-        use std::convert::TryInto;
++        use libsodium_rs::crypto_secretbox as secretbox;
+ 
+         let uuid = crate::get_uuid();
+         let pk = crate::config::Config::get_key_pair().1;
+@@ -588,12 +592,12 @@ mod test {
+         }
+ 
+         let data = b"test password 123";
+-        let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
++        let nonce = secretbox::Nonce::from_bytes([0; secretbox::NONCEBYTES]);
+ 
+         // Encrypt with pk (simulating machine_uid failure during encryption)
+         let mut pk_keybuf = pk;
+         pk_keybuf.resize(secretbox::KEYBYTES, 0);
+-        let pk_key = secretbox::Key(pk_keybuf.try_into().unwrap());
++        let pk_key = secretbox::Key::from_bytes(&pk_keybuf).unwrap();
+         let encrypted = secretbox::seal(data, &nonce, &pk_key);
+ 
+         // Decrypt using symmetric_crypt (should fallback to pk since uuid differs)
+@@ -609,9 +613,8 @@ mod test {
+     #[cfg(not(any(target_os = "android", target_os = "ios")))]
+     fn test_decrypt_v1_with_pk_fallback() {
+         use super::*;
+-        use sodiumoxide::base64::{encode, Variant};
+-        use sodiumoxide::crypto::secretbox;
+-        use std::convert::TryInto;
++        use crate::encoding::{encode, Variant};
++        use libsodium_rs::crypto_secretbox as secretbox;
+ 
+         let uuid = crate::get_uuid();
+         let pk = crate::config::Config::get_key_pair().1;
+@@ -622,16 +625,16 @@ mod test {
+         }
+ 
+         let data = b"test password 123";
+-        let nonce = secretbox::gen_nonce();
++        let nonce = secretbox::Nonce::generate();
+ 
+         let mut pk_keybuf = pk;
+         pk_keybuf.resize(secretbox::KEYBYTES, 0);
+-        let pk_key = secretbox::Key(pk_keybuf.try_into().unwrap());
++        let pk_key = secretbox::Key::from_bytes(&pk_keybuf).unwrap();
+         let ciphertext = secretbox::seal(data, &nonce, &pk_key);
+ 
+         let mut encrypted = Vec::with_capacity(1 + secretbox::NONCEBYTES + ciphertext.len());
+         encrypted.push(FORMAT_V1);
+-        encrypted.extend(nonce.0);
++        encrypted.extend(nonce.as_bytes());
+         encrypted.extend(ciphertext);
+ 
+         assert_eq!(super::symmetric_crypt(&encrypted, false).unwrap(), data);
 diff --git a/src/platform/linux.rs b/src/platform/linux.rs
-index d4b29bb..32d7f34 100644
+index d4b29bb..0bcf112 100644
 --- a/src/platform/linux.rs
 +++ b/src/platform/linux.rs
 @@ -190,7 +190,7 @@ pub fn get_display_server_of_session(session: &str) -> String {
@@ -833,11 +1228,49 @@ index d4b29bb..32d7f34 100644
      } else {
          out.to_string()
      })
+@@ -482,16 +480,12 @@ pub fn get_home_dir_trusted() -> Option<PathBuf> {
+             if Path::is_dir(home) {
+                 Some(PathBuf::from(home))
+             } else {
+-                log::warn!(
+-                    "Home directory for uid {} does not exist or is not a directory: {:?}",
+-                    uid,
+-                    home
+-                );
++                log::warn!("Current user home directory is unavailable");
+                 None
+             }
+         }
+         None => {
+-            log::warn!("Failed to get user info for uid {}", uid);
++            log::warn!("Current user information is unavailable");
+             None
+         }
+     }
+@@ -528,8 +522,8 @@ mod tests {
+ 
+         // Verify: returns valid path that is NOT the fake HOME
+         if let Some(path) = result {
+-            assert!(path.is_absolute(), "Path should be absolute: {:?}", path);
+-            assert!(path.is_dir(), "Path should be a directory: {:?}", path);
++            assert!(path.is_absolute(), "Path should be absolute");
++            assert!(path.is_dir(), "Path should be a directory");
+             assert_ne!(
+                 path.to_string_lossy(),
+                 "/tmp/fake_malicious_home",
 diff --git a/src/proxy.rs b/src/proxy.rs
-index d3b8a76..7056c20 100644
+index d3b8a76..d23492a 100644
 --- a/src/proxy.rs
 +++ b/src/proxy.rs
-@@ -76,7 +76,7 @@ impl IntoUrl for Url {
+@@ -4,7 +4,6 @@ use std::{
+ };
+ 
+ use anyhow::bail;
+-use async_recursion::async_recursion;
+ use base64::{engine::general_purpose, Engine};
+ use httparse::{Error as HttpParseError, Response, EMPTY_HEADER};
+ use thiserror::Error as ThisError;
+@@ -76,7 +75,7 @@ impl IntoUrl for Url {
      }
  }
  
@@ -846,7 +1279,7 @@ index d3b8a76..7056c20 100644
      fn into_url(self) -> Result<Url, ProxyError> {
          Url::parse(self)
              .map_err(ProxyError::UrlParseScheme)?
-@@ -88,7 +88,7 @@ impl<'a> IntoUrl for &'a str {
+@@ -88,7 +87,7 @@ impl<'a> IntoUrl for &'a str {
      }
  }
  
@@ -855,7 +1288,7 @@ index d3b8a76..7056c20 100644
      fn into_url(self) -> Result<Url, ProxyError> {
          (&**self).into_url()
      }
-@@ -98,7 +98,7 @@ impl<'a> IntoUrl for &'a String {
+@@ -98,7 +97,7 @@ impl<'a> IntoUrl for &'a String {
      }
  }
  
@@ -864,7 +1297,7 @@ index d3b8a76..7056c20 100644
      fn into_url(self) -> Result<Url, ProxyError> {
          (&*self).into_url()
      }
-@@ -229,7 +229,7 @@ impl ProxyScheme {
+@@ -229,7 +228,7 @@ impl ProxyScheme {
          match self {
              ProxyScheme::Http { host, .. } => self.resolve_host(host, 80).await,
              ProxyScheme::Https { host, .. } => self.resolve_host(host, 443).await,
@@ -873,7 +1306,7 @@ index d3b8a76..7056c20 100644
          }
      }
  
-@@ -323,10 +323,7 @@ impl Proxy {
+@@ -323,10 +322,7 @@ impl Proxy {
      }
  
      pub fn is_http_or_https(&self) -> bool {
@@ -885,7 +1318,7 @@ index d3b8a76..7056c20 100644
      }
  
      pub fn from_conf(conf: &Socks5Server, ms_timeout: Option<u64>) -> Result<Self, ProxyError> {
-@@ -393,7 +390,7 @@ impl Proxy {
+@@ -393,7 +389,7 @@ impl Proxy {
          let stream = self.new_stream(local, proxy).await?;
          let addr = stream.local_addr()?;
  
@@ -894,7 +1327,7 @@ index d3b8a76..7056c20 100644
              ProxyScheme::Http { .. } => {
                  log::trace!("Connect to remote http proxy server: {}", proxy);
                  let stream =
-@@ -474,7 +471,7 @@ impl Proxy {
+@@ -474,7 +470,7 @@ impl Proxy {
                      0,
                  ))
              }
@@ -903,7 +1336,7 @@ index d3b8a76..7056c20 100644
      }
  
      async fn https_connect_nativetls_wrap_danger<'a>(
-@@ -490,7 +487,7 @@ impl Proxy {
+@@ -490,7 +486,7 @@ impl Proxy {
              self.ms_timeout,
              self.https_connect_nativetls(
                  stream,
@@ -912,16 +1345,44 @@ index d3b8a76..7056c20 100644
                  danger_accept_invalid_cert.unwrap_or(false),
              ),
          )
-@@ -523,6 +520,8 @@ impl Proxy {
+@@ -512,10 +508,12 @@ impl Proxy {
+     where
+         Input: AsyncRead + AsyncWrite + Unpin,
+     {
+-        let mut tls_connector_builder = native_tls::TlsConnector::builder();
+         if danger_accept_invalid_cert {
+-            tls_connector_builder.danger_accept_invalid_certs(true);
++            return Err(ProxyError::IoError(std::io::Error::other(
++                "Disabling TLS certificate validation is not supported",
++            )));
+         }
++        let tls_connector_builder = native_tls::TlsConnector::builder();
+         let tls_connector = TlsConnector::from(tls_connector_builder.build()?);
+         let stream = tls_connector
+             .connect(&self.intercept.get_domain()?, io)
+@@ -523,7 +521,8 @@ impl Proxy {
          self.http_connect(stream, target_addr).await
      }
  
-+    // Preserve the upstream TLS retry interface and its separate consent flags.
+-    #[async_recursion]
++    // TLS implementation fallback must retain certificate validation.
 +    #[allow(clippy::too_many_arguments)]
-     #[async_recursion]
      async fn https_connect_rustls_wrap_danger<'a>(
          &self,
-@@ -548,7 +547,7 @@ impl Proxy {
+         url: &str,
+@@ -535,7 +534,10 @@ impl Proxy {
+         danger_accept_invalid_cert: Option<bool>,
+         origin_danger_accept_invalid_cert: Option<bool>,
+     ) -> ResultType<DynTcpStream> {
+-        let stream = stream.unwrap_or(self.new_stream(local, proxy).await?);
++        let stream = match stream {
++            Some(stream) => stream,
++            None => self.new_stream(local, proxy).await?,
++        };
+         match super::timeout(
+             self.ms_timeout,
+             self.https_connect_rustls(
+@@ -548,7 +550,7 @@ impl Proxy {
          {
              Ok(s) => {
                  upsert_tls_cache(
@@ -930,17 +1391,27 @@ index d3b8a76..7056c20 100644
                      TlsType::Rustls,
                      danger_accept_invalid_cert.unwrap_or(false),
                  );
-@@ -573,7 +572,7 @@ impl Proxy {
-                         "Falling back to rustls-tls (accept invalid cert) for HTTPS proxy server."
-                     );
-                     self.https_connect_rustls_wrap_danger(
+@@ -568,28 +570,13 @@ impl Proxy {
+                 // If the cert verification fails, the error is:
+                 // "IO Error: invalid peer certificate: UnknownIssuer"
+ 
+-                let s = if danger_accept_invalid_cert.is_none() {
+-                    log::warn!(
+-                        "Falling back to rustls-tls (accept invalid cert) for HTTPS proxy server."
+-                    );
+-                    self.https_connect_rustls_wrap_danger(
 -                        &url,
-+                        url,
-                         local,
-                         proxy,
-                         None,
-@@ -586,10 +585,10 @@ impl Proxy {
-                 } else if !is_tls_type_cached {
+-                        local,
+-                        proxy,
+-                        None,
+-                        target_addr,
+-                        is_tls_type_cached,
+-                        Some(true),
+-                        origin_danger_accept_invalid_cert,
+-                    )
+-                    .await?
+-                } else if !is_tls_type_cached {
++                let s = if !is_tls_type_cached {
                      log::warn!("Falling back to native-tls for HTTPS proxy server.");
                      self.https_connect_nativetls_wrap_danger(
 -                        &url,
@@ -952,7 +1423,7 @@ index d3b8a76..7056c20 100644
                          origin_danger_accept_invalid_cert,
                      )
                      .await?
-@@ -703,7 +702,7 @@ where
+@@ -703,7 +690,7 @@ where
      let response_bytes = response_string.into_bytes();
      response.parse(&response_bytes)?;
  
@@ -961,7 +1432,7 @@ index d3b8a76..7056c20 100644
          Some(code) => {
              if code == 200 {
                  Ok(())
-@@ -712,5 +711,5 @@ where
+@@ -712,5 +699,5 @@ where
              }
          }
          None => Err(ProxyError::NoHttpCode),
@@ -969,15 +1440,16 @@ index d3b8a76..7056c20 100644
 +    }
  }
 diff --git a/src/stream.rs b/src/stream.rs
-index a8e6b6c..d2be1bc 100644
+index a8e6b6c..39e4556 100644
 --- a/src/stream.rs
 +++ b/src/stream.rs
 @@ -1,11 +1,13 @@
 -use crate::{config, tcp, websocket, ResultType};
  #[cfg(feature = "webrtc")]
  use crate::webrtc;
+-use sodiumoxide::crypto::secretbox::Key;
 +use crate::{config, tcp, websocket, ResultType};
- use sodiumoxide::crypto::secretbox::Key;
++use libsodium_rs::crypto_secretbox::Key;
  use std::net::SocketAddr;
  use tokio::net::TcpStream;
  
@@ -988,18 +1460,24 @@ index a8e6b6c..d2be1bc 100644
      #[cfg(feature = "webrtc")]
      WebRTC(webrtc::WebRTCStream),
 diff --git a/src/tcp.rs b/src/tcp.rs
-index 2296edb..869cebb 100644
+index 2296edb..e3478bf 100644
 --- a/src/tcp.rs
 +++ b/src/tcp.rs
-@@ -1,4 +1,4 @@
+@@ -1,14 +1,14 @@
 -use crate::{bail, bytes_codec::BytesCodec, ResultType, config::Socks5Server, proxy::Proxy};
 +use crate::{bail, bytes_codec::BytesCodec, config::Socks5Server, proxy::Proxy, ResultType};
  use anyhow::Context as AnyhowCtx;
  use bytes::{BufMut, Bytes, BytesMut};
  use futures::{SinkExt, StreamExt};
-@@ -8,7 +8,7 @@ use sodiumoxide::crypto::{
-     secretbox::{self, Key, Nonce},
+-use protobuf::Message;
+-use sodiumoxide::crypto::{
+-    box_,
+-    secretbox::{self, Key, Nonce},
++use libsodium_rs::{
++    crypto_box as box_, crypto_secretbox as secretbox,
++    crypto_secretbox::{Key, Nonce},
  };
++use protobuf::Message;
  use std::{
 -    io::{self, Error, ErrorKind},
 +    io::{self, Error},
@@ -1031,12 +1509,25 @@ index 2296edb..869cebb 100644
      }
  
      pub fn set_key(&mut self, key: Key) {
+@@ -201,9 +200,9 @@ impl FramedStream {
+     }
+ 
+     fn get_nonce(seqnum: u64) -> Nonce {
+-        let mut nonce = Nonce([0u8; secretbox::NONCEBYTES]);
+-        nonce.0[..std::mem::size_of_val(&seqnum)].copy_from_slice(&seqnum.to_le_bytes());
+-        nonce
++        let mut nonce = [0u8; secretbox::NONCEBYTES];
++        nonce[..std::mem::size_of_val(&seqnum)].copy_from_slice(&seqnum.to_le_bytes());
++        Nonce::from_bytes(nonce)
+     }
+ }
+ 
 @@ -310,14 +309,14 @@ impl Encrypt {
                  bytes.put_slice(&res);
                  Ok(())
              }
 -            Err(()) => Err(Error::new(ErrorKind::Other, "decryption error")),
-+            Err(()) => Err(Error::other("decryption error")),
++            Err(_) => Err(Error::other("decryption error")),
          }
      }
  
@@ -1048,15 +1539,28 @@ index 2296edb..869cebb 100644
      }
  
      pub fn decode(
-@@ -332,7 +331,7 @@ impl Encrypt {
+@@ -328,17 +327,17 @@ impl Encrypt {
+         if their_pk_b.len() != box_::PUBLICKEYBYTES {
+             anyhow::bail!("Handshake failed: pk length {}", their_pk_b.len());
+         }
+-        let nonce = box_::Nonce([0u8; box_::NONCEBYTES]);
++        let nonce = box_::Nonce::from_bytes_exact([0u8; box_::NONCEBYTES]);
          let mut pk_ = [0u8; box_::PUBLICKEYBYTES];
          pk_[..].copy_from_slice(their_pk_b);
-         let their_pk_b = box_::PublicKey(pk_);
+-        let their_pk_b = box_::PublicKey(pk_);
 -        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, &our_sk_b)
++        let their_pk_b = box_::PublicKey::from_bytes(&pk_)?;
 +        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, our_sk_b)
              .map_err(|_| anyhow::anyhow!("Handshake failed: box decryption failure"))?;
          if symmetric_key.len() != secretbox::KEYBYTES {
              anyhow::bail!("Handshake failed: invalid secret key length from peer");
+         }
+         let mut key = [0u8; secretbox::KEYBYTES];
+         key[..].copy_from_slice(&symmetric_key);
+-        Ok(Key(key))
++        Ok(Key::from_bytes(&key)?)
+     }
+ }
 diff --git a/src/udp.rs b/src/udp.rs
 index fbdf332..2a6f319 100644
 --- a/src/udp.rs
@@ -1087,10 +1591,131 @@ index fbdf332..2a6f319 100644
      }
  
      pub fn local_addr(&self) -> Option<SocketAddr> {
+diff --git a/src/verifier.rs b/src/verifier.rs
+index 9f62854..90e24ee 100644
+--- a/src/verifier.rs
++++ b/src/verifier.rs
+@@ -1,65 +1,14 @@
+ use crate::ResultType;
++#[cfg(any(target_os = "android", target_os = "ios"))]
+ use rustls_pki_types::{ServerName, UnixTime};
+ use std::sync::Arc;
+ use tokio_rustls::rustls::{self, client::WebPkiServerVerifier, ClientConfig};
++#[cfg(any(target_os = "android", target_os = "ios"))]
+ use tokio_rustls::rustls::{
+     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+     DigitallySignedStruct, Error as TLSError, SignatureScheme,
+ };
+ 
+-// https://github.com/seanmonstar/reqwest/blob/fd61bc93e6f936454ce0b978c6f282f06eee9287/src/tls.rs#L608
+-#[derive(Debug)]
+-pub(crate) struct NoVerifier;
+-
+-impl ServerCertVerifier for NoVerifier {
+-    fn verify_server_cert(
+-        &self,
+-        _end_entity: &rustls_pki_types::CertificateDer,
+-        _intermediates: &[rustls_pki_types::CertificateDer],
+-        _server_name: &ServerName,
+-        _ocsp_response: &[u8],
+-        _now: UnixTime,
+-    ) -> Result<ServerCertVerified, TLSError> {
+-        Ok(ServerCertVerified::assertion())
+-    }
+-
+-    fn verify_tls12_signature(
+-        &self,
+-        _message: &[u8],
+-        _cert: &rustls_pki_types::CertificateDer,
+-        _dss: &DigitallySignedStruct,
+-    ) -> Result<HandshakeSignatureValid, TLSError> {
+-        Ok(HandshakeSignatureValid::assertion())
+-    }
+-
+-    fn verify_tls13_signature(
+-        &self,
+-        _message: &[u8],
+-        _cert: &rustls_pki_types::CertificateDer,
+-        _dss: &DigitallySignedStruct,
+-    ) -> Result<HandshakeSignatureValid, TLSError> {
+-        Ok(HandshakeSignatureValid::assertion())
+-    }
+-
+-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+-        vec![
+-            SignatureScheme::RSA_PKCS1_SHA1,
+-            SignatureScheme::ECDSA_SHA1_Legacy,
+-            SignatureScheme::RSA_PKCS1_SHA256,
+-            SignatureScheme::ECDSA_NISTP256_SHA256,
+-            SignatureScheme::RSA_PKCS1_SHA384,
+-            SignatureScheme::ECDSA_NISTP384_SHA384,
+-            SignatureScheme::RSA_PKCS1_SHA512,
+-            SignatureScheme::ECDSA_NISTP521_SHA512,
+-            SignatureScheme::RSA_PSS_SHA256,
+-            SignatureScheme::RSA_PSS_SHA384,
+-            SignatureScheme::RSA_PSS_SHA512,
+-            SignatureScheme::ED25519,
+-            SignatureScheme::ED448,
+-        ]
+-    }
+-}
+-
+ /// A certificate verifier that tries a primary verifier first,
+ /// and falls back to a platform verifier if the primary fails.
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+@@ -174,7 +123,7 @@ fn webpki_server_verifier(
+     let rustls_native_certs::CertificateResult { certs, errors, .. } =
+         rustls_native_certs::load_native_certs();
+     if !errors.is_empty() {
+-        log::warn!("native root CA certificate loading errors: {errors:?}");
++        log::warn!("Some native root CA certificates could not be loaded");
+     }
+     root_cert_store.add_parsable_certificates(certs);
+ 
+@@ -202,7 +151,7 @@ fn webpki_server_verifier(
+ 
+ pub fn client_config(danger_accept_invalid_cert: bool) -> ResultType<ClientConfig> {
+     if danger_accept_invalid_cert {
+-        client_config_danger()
++        anyhow::bail!("Disabling TLS certificate validation is not supported")
+     } else {
+         client_config_safe()
+     }
+@@ -249,9 +198,15 @@ pub fn client_config_safe() -> ResultType<ClientConfig> {
+ }
+ 
+ pub fn client_config_danger() -> ResultType<ClientConfig> {
+-    let config = ClientConfig::builder()
+-        .dangerous()
+-        .with_custom_certificate_verifier(Arc::new(NoVerifier))
+-        .with_no_client_auth();
+-    Ok(config)
++    anyhow::bail!("Disabling TLS certificate validation is not supported")
++}
++
++#[cfg(test)]
++mod tests {
++    #[test]
++    fn insecure_certificate_validation_is_rejected() {
++        assert!(super::client_config(true).is_err());
++        assert!(super::client_config_danger().is_err());
++        assert!(super::client_config(false).is_ok());
++    }
+ }
 diff --git a/src/webrtc.rs b/src/webrtc.rs
-index 8f3c410..9facb21 100644
+index 8f3c410..18a1604 100644
 --- a/src/webrtc.rs
 +++ b/src/webrtc.rs
+@@ -25,8 +25,8 @@ use url::Url;
+ 
+ use crate::config;
+ use crate::protobuf::Message;
+-use crate::sodiumoxide::crypto::secretbox::Key;
+ use crate::ResultType;
++use libsodium_rs::crypto_secretbox::Key;
+ 
+ pub struct WebRTCStream {
+     pc: Arc<RTCPeerConnection>,
 @@ -122,7 +122,7 @@ impl WebRTCStream {
          if sdp_json.is_empty() {
              return Ok("".to_string());
@@ -1195,9 +1820,20 @@ index 8f3c410..9facb21 100644
          );
  
 diff --git a/src/websocket.rs b/src/websocket.rs
-index 7bf2108..22caf25 100644
+index 7bf2108..20b4e39 100644
 --- a/src/websocket.rs
 +++ b/src/websocket.rs
+@@ -2,9 +2,9 @@ use crate::{
+     config::{
+         keys::OPTION_RELAY_SERVER, use_ws, Config, Socks5Server, RELAY_PORT, RENDEZVOUS_PORT,
+     },
++    libsodium_rs::crypto_secretbox::Key,
+     protobuf::Message,
+     socket_client::split_host_port,
+-    sodiumoxide::crypto::secretbox::Key,
+     tcp::Encrypt,
+     tls::{get_cached_tls_accept_invalid_cert, get_cached_tls_type, upsert_tls_cache, TlsType},
+     ResultType,
 @@ -13,12 +13,7 @@ use anyhow::bail;
  use async_recursion::async_recursion;
  use bytes::{Bytes, BytesMut};
@@ -1212,7 +1848,24 @@ index 7bf2108..22caf25 100644
  use tokio::{net::TcpStream, time::timeout};
  use tokio_native_tls::native_tls::TlsConnector;
  use tokio_tungstenite::{
-@@ -74,7 +69,7 @@ impl WsFramedStream {
+@@ -41,12 +36,13 @@ impl WsFramedStream {
+         tls_type: &TlsType,
+         danger_accept_invalid_certs: bool,
+     ) -> ResultType<Option<Connector>> {
++        if danger_accept_invalid_certs {
++            bail!("Disabling TLS certificate validation is not supported");
++        }
+         match tls_type {
+             TlsType::Plain => Ok(Some(Connector::Plain)),
+             TlsType::NativeTls => {
+-                let connector = TlsConnector::builder()
+-                    .danger_accept_invalid_certs(danger_accept_invalid_certs)
+-                    .build()?;
++                let connector = TlsConnector::builder().build()?;
+                 Ok(Some(Connector::NativeTls(connector)))
+             }
+             TlsType::Rustls => {
+@@ -74,7 +70,7 @@ impl WsFramedStream {
          let tls_type = get_cached_tls_type(url);
          let is_tls_type_cached = tls_type.is_some();
          let tls_type = tls_type.unwrap_or(TlsType::Rustls);
@@ -1221,7 +1874,7 @@ index 7bf2108..22caf25 100644
          Self::try_connect(
              url,
              ms_timeout,
-@@ -97,9 +92,7 @@ impl WsFramedStream {
+@@ -97,9 +93,7 @@ impl WsFramedStream {
      ) -> ResultType<WebSocketStream<MaybeTlsStream<TcpStream>>> {
          let ws_config = None;
          let disable_nagle = false;
@@ -1232,7 +1885,55 @@ index 7bf2108..22caf25 100644
          let connector =
              Self::get_connector(&tls_type, danger_accept_invalid_cert.unwrap_or(false))?;
          match timeout(
-@@ -193,7 +186,7 @@ impl WsFramedStream {
+@@ -113,23 +107,7 @@ impl WsFramedStream {
+                 Ok(ws_stream)
+             }
+             Err(e) => match (tls_type, is_tls_type_cached, danger_accept_invalid_cert) {
+-                (TlsType::Rustls, _, None) => {
+-                    log::warn!(
+-                            "WebSocket connection with rustls-tls failed, try accept invalid certs: {}, {:?}",
+-                            url,
+-                            e
+-                        );
+-                    Self::try_connect(
+-                        url,
+-                        ms_timeout,
+-                        tls_type,
+-                        is_tls_type_cached,
+-                        Some(true),
+-                        original_danger_accept_invalid_certs,
+-                    )
+-                    .await
+-                }
+-                (TlsType::Rustls, false, Some(_)) => {
++                (TlsType::Rustls, false, _) => {
+                     log::warn!(
+                         "WebSocket connection with rustls-tls failed, try native-tls: {}, {:?}",
+                         url,
+@@ -145,22 +123,6 @@ impl WsFramedStream {
+                     )
+                     .await
+                 }
+-                (TlsType::NativeTls, _, None) => {
+-                    log::warn!(
+-                            "WebSocket connection with native-tls failed, try accept invalid certs: {}, {:?}",
+-                            url,
+-                            e
+-                        );
+-                    Self::try_connect(
+-                        url,
+-                        ms_timeout,
+-                        tls_type,
+-                        is_tls_type_cached,
+-                        Some(true),
+-                        original_danger_accept_invalid_certs,
+-                    )
+-                    .await
+-                }
+                 _ => {
+                     log::error!(
+                         "WebSocket connection failed with tls_type {:?}: {}, {:?}",
+@@ -193,7 +155,7 @@ impl WsFramedStream {
              MaybeTlsStream::Plain(tcp) => tcp.peer_addr()?,
              MaybeTlsStream::NativeTls(tls) => tls.get_ref().get_ref().get_ref().peer_addr()?,
              MaybeTlsStream::Rustls(tls) => tls.get_ref().0.peer_addr()?,
@@ -1241,7 +1942,7 @@ index 7bf2108..22caf25 100644
          };
  
          let ws = Self {
-@@ -280,10 +273,10 @@ impl WsFramedStream {
+@@ -280,10 +242,10 @@ impl WsFramedStream {
                  Ok(msg) => msg,
                  Err(e) => {
                      log::error!("{}", e);
@@ -1256,7 +1957,7 @@ index 7bf2108..22caf25 100644
                  }
              };
  
-@@ -315,10 +308,9 @@ impl WsFramedStream {
+@@ -315,10 +277,9 @@ impl WsFramedStream {
  
      #[inline]
      pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {

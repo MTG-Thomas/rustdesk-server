@@ -1,4 +1,3 @@
-use clap::App;
 use hbbs::common;
 mod relay_server;
 use flexi_logger::*;
@@ -12,17 +11,10 @@ fn main() -> ResultType<()> {
         .format(opt_format)
         .write_mode(WriteMode::Async)
         .start()?;
-    let args = format!(
-        "-b, --bind=[IP] 'Sets the IP address to bind to (default: all interfaces)'
-        -p, --port=[NUMBER(default={RELAY_PORT})] 'Sets the listening port'
-        -k, --key=[KEY] 'Only allow the client with the same key'
-        ",
-    );
-    let matches = App::new("hbbr")
+    let matches = common::server_command("hbbr")
         .version(version::VERSION)
         .author("Purslane Ltd. <info@rustdesk.com>")
         .about("RustDesk Relay Server")
-        .args_from_usage(&args)
         .get_matches();
     if let Ok(v) = ini::Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
@@ -37,17 +29,19 @@ fn main() -> ResultType<()> {
         }
     }
     let bind = matches
-        .value_of("bind")
-        .map(str::to_owned)
+        .get_one::<String>("bind")
+        .cloned()
         .unwrap_or_else(|| common::get_arg("BIND"));
     let bind_addr = common::parse_bind_address(&bind)?;
     let key = matches
-        .value_of("key")
-        .map(str::to_owned)
+        .get_one::<String>("key")
+        .cloned()
         .unwrap_or_else(|| common::get_arg("KEY"));
     start_with_bind(
         bind_addr,
-        matches.value_of("port").unwrap_or(&port.to_string()),
+        matches
+            .get_one::<String>("port")
+            .unwrap_or(&port.to_string()),
         &key,
     )?;
     Ok(())
