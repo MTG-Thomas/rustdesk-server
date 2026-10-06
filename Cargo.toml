@@ -52,7 +52,6 @@ hbb_common = { path = "libs/hbb_common" }
 
 [workspace]
 members = ["libs/hbb_common"]
-exclude = ["ui"]
 
 #https://github.com/johnthagen/min-sized-rust
 #https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles

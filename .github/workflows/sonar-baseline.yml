@@ -91,7 +91,7 @@ jobs:
         if: steps.baseline.outputs.needed == 'true'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: python3 scripts/sonar_baseline.py wait baseline/.scannerwork/report-task.txt
+        run: python3 scripts/sonar_baseline.py wait
       - name: Preserve initial baseline reports and task receipt
         if: always() && steps.baseline.outputs.needed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

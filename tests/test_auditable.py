@@ -18,12 +18,13 @@ class AuditableTests(unittest.TestCase):
         self.original = Path(shutil.which("true"))
 
     def binary(self, section):
-        output = self.root / "binary"
+        output = self.root / "target/debug/hbbs"
+        output.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["objcopy", "--add-section", f"{section}={self.payload}", str(self.original), str(output)], check=True)
-        return output
+        return output.relative_to(self.root)
 
     def check(self, *binaries):
-        return subprocess.run(["python3", str(SCRIPT), *map(str, binaries)], capture_output=True, text=True)
+        return subprocess.run(["python3", str(SCRIPT), *map(str, binaries)], capture_output=True, text=True, cwd=self.root)
 
     def test_exact_section_is_required(self):
         self.assertEqual(self.check(self.binary(".dep-v0")).returncode, 0)
@@ -32,10 +33,19 @@ class AuditableTests(unittest.TestCase):
         self.assertNotEqual(self.check(self.binary(".dep-v0-decoy")).returncode, 0)
 
     def test_every_binary_needs_metadata(self):
-        self.assertNotEqual(self.check(self.binary(".dep-v0"), self.original).returncode, 0)
+        valid = self.binary(".dep-v0")
+        missing = Path("target/debug/hbbr")
+        shutil.copyfile(self.original, self.root / missing)
+        self.assertNotEqual(self.check(valid, missing).returncode, 0)
 
     def test_empty_input_is_rejected(self):
         self.assertNotEqual(self.check().returncode, 0)
+
+    def test_command_options_are_rejected(self):
+        self.assertNotEqual(self.check("--help").returncode, 0)
+
+    def test_external_paths_are_rejected(self):
+        self.assertNotEqual(self.check(self.original).returncode, 0)
 
 
 if __name__ == "__main__":
