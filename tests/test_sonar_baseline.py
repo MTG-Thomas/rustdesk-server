@@ -1,5 +1,9 @@
 """Validate bootstrap identities and reject failed or foreign compute tasks."""
+import base64
+import io
 import importlib.util
+import urllib.error
+import urllib.parse
 import os
 import tempfile
 import unittest
@@ -90,6 +94,38 @@ class BaselineTests(unittest.TestCase):
         with patch.object(MODULE.sys, "argv", ["sonar_baseline.py", "wait", "../../other"]):
             with self.assertRaisesRegex(SystemExit, "Expected"):
                 MODULE.main()
+
+    def test_request_encodes_query_and_authenticates_with_timeout(self):
+        response = io.BytesIO(b'{"branches": []}')
+        with patch.dict(os.environ, {"SONAR_TOKEN": "test-only-credential"}), patch.object(MODULE.urllib.request, "urlopen", return_value=response) as opener:
+            self.assertEqual(MODULE.request("project_branches/list", project=MODULE.PROJECT, branch="codex/websocket-registration"), {"branches": []})
+        request = opener.call_args.args[0]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        self.assertEqual(query["branch"], ["codex/websocket-registration"])
+        self.assertEqual(request.get_header("Authorization"), "Basic " + base64.b64encode(b"test-only-credential:").decode())
+        self.assertEqual(opener.call_args.kwargs["timeout"], 30)
+
+    def test_provider_error_propagates(self):
+        with patch.dict(os.environ, {"SONAR_TOKEN": "test-only-credential"}), patch.object(MODULE.urllib.request, "urlopen", side_effect=urllib.error.URLError("provider unavailable")):
+            with self.assertRaises(urllib.error.URLError):
+                MODULE.request("project_branches/list", project=MODULE.PROJECT)
+
+    def test_missing_analysis_is_not_success(self):
+        with patch.object(MODULE, "request", return_value={"analyses": []}):
+            with self.assertRaisesRegex(SystemExit, "identity differs"):
+                MODULE.verify_analysis("master", {"analysisId": "analysis"})
+
+    def test_other_analysis_id_is_not_success(self):
+        with patch.object(MODULE, "request", return_value={"analyses": [{"key": "other", "revision": MODULE.BASELINES["master"]}]}):
+            with self.assertRaisesRegex(SystemExit, "identity differs"):
+                MODULE.verify_analysis("master", {"analysisId": "analysis"})
+
+    def test_receipt_preserves_equals_in_value_and_ignores_non_fields(self):
+        self.receipt.write_text("projectKey=MTG-Thomas_rustdesk-server\nceTaskId=task=value\ncomment without separator\n")
+        with patch.object(MODULE, "request", return_value={"task": {"componentKey": MODULE.PROJECT, "status": "FAILED"}}) as request:
+            with self.assertRaisesRegex(SystemExit, "failed"):
+                self.execute("wait")
+        request.assert_called_once_with("ce/task", id="task=value")
 
 
 if __name__ == "__main__":

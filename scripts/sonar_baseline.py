@@ -43,7 +43,11 @@ def verify_analysis(branch, task):
 
 def wait(branch):
     receipt_path = ROOT / "baseline" / ".scannerwork" / "report-task.txt"
-    receipt = {key: value for key, value in (line.split("=", 1) for line in receipt_path.read_text().splitlines() if "=" in line)}
+    receipt = {}
+    for line in receipt_path.read_text().splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            receipt[key] = value
     if receipt["projectKey"] != PROJECT:
         raise SystemExit("Baseline receipt belongs to another project")
     for _ in range(60):

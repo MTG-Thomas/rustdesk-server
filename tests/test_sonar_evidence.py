@@ -58,6 +58,25 @@ class SonarEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "outside"):
             self.execute("write")
 
+    def test_empty_coverage_is_rejected(self):
+        (self.root / "artifacts/lcov.info").write_text("")
+        with self.assertRaisesRegex(SystemExit, "Missing measured"):
+            self.execute("write")
+
+    def test_coverage_without_server_source_is_rejected(self):
+        (self.root / "artifacts/lcov.info").write_text("SF:tests/test.rs\n")
+        with self.assertRaisesRegex(SystemExit, "Missing measured"):
+            self.execute("write")
+
+    def test_unrecognized_command_is_rejected(self):
+        with self.assertRaisesRegex(SystemExit, "Expected write or verify"):
+            self.execute("skip")
+
+    def test_missing_report_is_rejected(self):
+        (self.root / "artifacts/python-coverage.xml").unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.execute("write")
+
 
 if __name__ == "__main__":
     unittest.main()
