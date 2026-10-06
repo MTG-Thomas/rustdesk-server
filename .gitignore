@@ -12,3 +12,6 @@ test.*
 .idea
 
 /tests/__pycache__/
+
+# Generated dependency inventories are published as CI artifacts.
+*.cdx.json

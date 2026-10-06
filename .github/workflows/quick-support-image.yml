@@ -15,6 +15,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     if: github.repository == 'MTG-Thomas/rustdesk-server'
     runs-on: ubuntu-24.04
     steps:
@@ -23,9 +25,18 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Build and exercise real rendezvous protocol
-        run: docker build -f Dockerfile.quick-support --label org.opencontainers.image.revision=$GITHUB_SHA --label org.opencontainers.image.version=1.1.16-mtg.ws2 -t ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA .
+        run: docker build -f Dockerfile.quick-support --label org.opencontainers.image.revision=$GITHUB_SHA --label org.opencontainers.image.version=1.1.16-mtg.ws3 -t ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA .
       - name: Verify final S6 runtime compatibility
         run: python3 tests/s6_runtime_smoke.py ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA
+      - name: Inventory the tested final image
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: docker:ghcr.io/mtg-thomas/rustdesk-server-quick-support:${{ github.sha }}
+          syft-version: v1.54.0
+          format: spdx-json
+          output-file: image.spdx.json
+          artifact-name: quick-support-image-sbom
+          upload-release-assets: false
       - name: Authenticate to GHCR
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -33,6 +44,22 @@ jobs:
       - name: Publish tested image
         run: docker push ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA
       - name: Record immutable image digest
+        id: image
         run: |
           docker pull ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA
-          docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA >> "$GITHUB_STEP_SUMMARY"
+          image=$(docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA)
+          echo "$image" >> "$GITHUB_STEP_SUMMARY"
+          echo "digest=${image#*@}" >> "$GITHUB_OUTPUT"
+      - name: Attest the tested image build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/mtg-thomas/rustdesk-server-quick-support
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - name: Bind the final image inventory to its digest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/mtg-thomas/rustdesk-server-quick-support
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: image.spdx.json
+          push-to-registry: true

@@ -17,7 +17,8 @@ RUN apk add --no-cache build-base linux-headers pkgconf libsodium-dev libsodium-
 ENV SODIUM_LIB_DIR=/usr/lib OPENSSL_STATIC=1 CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /work
 COPY . .
-RUN cargo build --locked --release --bins
+RUN cargo install cargo-auditable --version 0.7.7 --locked && python3 scripts/apply_common_patch.py && cargo auditable build --locked --release --bins
+RUN python3 scripts/check_auditable.py target/release/hbbs target/release/hbbr target/release/rustdesk-utils
 RUN python3 -m venv /test-env && /test-env/bin/pip install --no-cache-dir websockets==15.0.1 && /test-env/bin/python tests/run_protocol_tests.py target/release/hbbs
 
 FROM rustdesk/rustdesk-server-s6@sha256:dc099359c4a30611c59f8826bf6eb9780f38d4901470a3901d9eeb21854e0605

@@ -1,0 +1,654 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 58f54ac..dba70e8 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -51,7 +51,7 @@ default_net = { git = "https://github.com/rustdesk-org/default_net" }
+ machine-uid = { git = "https://github.com/rustdesk-org/machine-uid" }
+ [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
+ tokio-rustls = { version = "0.26", features = ["logging", "tls12", "ring"], default-features = false }
+-rustls-platform-verifier = "0.3.1"
++rustls-platform-verifier = "0.7"
+ rustls-pki-types = "1.4"
+ [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+ tokio-native-tls ="0.3"
+diff --git a/src/config.rs b/src/config.rs
+index a542309..35256c7 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -759,7 +759,7 @@ impl Config {
+                 return ss;
+             }
+         }
+-        return RENDEZVOUS_SERVERS.iter().map(|x| x.to_string()).collect();
++        RENDEZVOUS_SERVERS.iter().map(|x| x.to_string()).collect()
+     }
+ 
+     pub fn reset_online() {
+@@ -992,7 +992,7 @@ impl Config {
+             .read()
+             .unwrap()
+             .get("password")
+-            .map_or(false, |v| v == password)
++            .is_some_and(|v| v == password)
+         {
+             return;
+         }
+@@ -1139,8 +1139,8 @@ impl Config {
+         trusted_devices.retain(|d| !d.outdate());
+         let devices = serde_json::to_string(&trusted_devices).unwrap_or_default();
+         let max_len = 1024 * 1024;
+-        if devices.bytes().len() > max_len {
+-            log::error!("Trusted devices too large: {}", devices.bytes().len());
++        if devices.len() > max_len {
++            log::error!("Trusted devices too large: {}", devices.len());
+             return;
+         }
+         let devices = encrypt_str_or_original(&devices, PASSWORD_ENC_VERSION, max_len);
+@@ -1157,7 +1157,7 @@ impl Config {
+         Self::set_trusted_devices(devices);
+     }
+ 
+-    pub fn remove_trusted_devices(hwids: &Vec<Bytes>) {
++    pub fn remove_trusted_devices(hwids: &[Bytes]) {
+         let mut devices = Self::get_trusted_devices();
+         devices.retain(|d| !hwids.contains(&d.hwid));
+         Self::set_trusted_devices(devices);
+@@ -1388,7 +1388,7 @@ impl PeerConfig {
+     }
+ 
+     pub fn batch_peers(
+-        all: &Vec<(String, SystemTime, PathBuf)>,
++        all: &[(String, SystemTime, PathBuf)],
+         from: usize,
+         to: Option<usize>,
+     ) -> (Vec<(String, SystemTime, PeerConfig)>, usize) {
+@@ -1409,11 +1409,11 @@ impl PeerConfig {
+         let peers: Vec<_> = all[from..to]
+             .iter()
+             .map(|(id, t, p)| {
+-                let c = PeerConfig::load(&id);
++                let c = PeerConfig::load(id);
+                 if c.info.platform.is_empty() {
+                     fs::remove_file(p).ok();
+                 }
+-                (id.clone(), t.clone(), c)
++                (id.clone(), *t, c)
+             })
+             .filter(|p| !p.2.info.platform.is_empty())
+             .collect();
+@@ -1476,7 +1476,7 @@ impl PeerConfig {
+ 
+     fn default_options() -> HashMap<String, String> {
+         let mut mp: HashMap<String, String> = Default::default();
+-        [
++        for key in [
+             keys::OPTION_CODEC_PREFERENCE,
+             keys::OPTION_CUSTOM_FPS,
+             keys::OPTION_ZOOM_CURSOR,
+@@ -1484,10 +1484,9 @@ impl PeerConfig {
+             keys::OPTION_I444,
+             keys::OPTION_SWAP_LEFT_RIGHT_MOUSE,
+             keys::OPTION_COLLAPSE_TOOLBAR,
+-        ]
+-        .map(|key| {
++        ] {
+             mp.insert(key.to_owned(), UserDefaultConfig::read(key));
+-        });
++        }
+         mp
+     }
+ }
+@@ -2191,7 +2190,7 @@ fn is_option_can_save(
+     v: &str,
+ ) -> bool {
+     if overwrite.read().unwrap().contains_key(k)
+-        || defaults.read().unwrap().get(k).map_or(false, |x| x == v)
++        || defaults.read().unwrap().get(k).is_some_and(|x| x == v)
+     {
+         return false;
+     }
+@@ -2204,7 +2203,7 @@ pub fn is_incoming_only() -> bool {
+         .read()
+         .unwrap()
+         .get("conn-type")
+-        .map_or(false, |x| x == ("incoming"))
++        .is_some_and(|x| x == ("incoming"))
+ }
+ 
+ #[inline]
+@@ -2213,7 +2212,7 @@ pub fn is_outgoing_only() -> bool {
+         .read()
+         .unwrap()
+         .get("conn-type")
+-        .map_or(false, |x| x == ("outgoing"))
++        .is_some_and(|x| x == ("outgoing"))
+ }
+ 
+ #[inline]
+@@ -2222,7 +2221,7 @@ fn is_some_hard_opton(name: &str) -> bool {
+         .read()
+         .unwrap()
+         .get(name)
+-        .map_or(false, |x| x == ("Y"))
++        .is_some_and(|x| x == ("Y"))
+ }
+ 
+ #[inline]
+@@ -2621,7 +2620,7 @@ mod tests {
+         res.insert("d".to_owned(), "c".to_string());
+         res.insert("c".to_owned(), "a".to_string());
+         Config::purify_options(&mut res);
+-        assert!(res.len() == 0);
++        assert!(res.is_empty());
+         res.insert("b".to_owned(), "c".to_string());
+         res.insert("d".to_owned(), "c".to_string());
+         res.insert("c".to_owned(), "a".to_string());
+@@ -2820,15 +2819,15 @@ mod tests {
+     fn test_store_load() {
+         let peerconfig_id = "123456789";
+         let cfg: PeerConfig = Default::default();
+-        cfg.store(&peerconfig_id);
+-        assert_eq!(PeerConfig::load(&peerconfig_id), cfg);
++        cfg.store(peerconfig_id);
++        assert_eq!(PeerConfig::load(peerconfig_id), cfg);
+ 
+         #[cfg(not(windows))]
+         {
+             use std::os::unix::fs::PermissionsExt;
+             assert_eq!(
+                 // ignore file type information by masking with 0o777 (see https://stackoverflow.com/a/50045872)
+-                fs::metadata(PeerConfig::path(&peerconfig_id))
++                fs::metadata(PeerConfig::path(peerconfig_id))
+                     .expect("reading metadata failed")
+                     .permissions()
+                     .mode()
+diff --git a/src/fingerprint.rs b/src/fingerprint.rs
+index 2d8985e..d41ba49 100644
+--- a/src/fingerprint.rs
++++ b/src/fingerprint.rs
+@@ -74,11 +74,11 @@ fn finalize_block(input: &[u8; 16], key: &[u8; 16]) -> [u8; 16] {
+ 
+     add_round_key(&mut state, &round_keys[0]);
+ 
+-    for round in 1..10 {
++    for round_key in round_keys.iter().take(10).skip(1) {
+         sub_bytes(&mut state);
+         shift_rows(&mut state);
+         mix_columns(&mut state);
+-        add_round_key(&mut state, &round_keys[round]);
++        add_round_key(&mut state, round_key);
+     }
+ 
+     sub_bytes(&mut state);
+@@ -156,8 +156,8 @@ fn get_system_entropy() -> [u8; 16] {
+         .duration_since(std::time::UNIX_EPOCH)
+         .unwrap_or_default()
+         .as_nanos();
+-    for i in 0..8 {
+-        entropy[i] = ((timestamp >> (32 - i)) & 0xFF) as u8;
++    for (i, value) in entropy.iter_mut().take(8).enumerate() {
++        *value = ((timestamp >> (32 - i)) & 0xFF) as u8;
+     }
+     entropy
+ }
+@@ -233,7 +233,7 @@ impl FingerprintingInfo {
+                         .ok()
+                         .and_then(|mac| mac)
+                         .map(|mac| mac.to_string())
+-                        .unwrap_or_else(|| "".to_string());
++                        .unwrap_or_default();
+                 }
+                 addr = addr.replace(":", "");
+                 format!("{:0<16}", addr)
+diff --git a/src/fs.rs b/src/fs.rs
+index 1488ffd..1638bb8 100644
+--- a/src/fs.rs
++++ b/src/fs.rs
+@@ -199,19 +199,16 @@ fn read_empty_dirs_recursive(
+             dirs.push(fd);
+         } else {
+             for entry in fd.entries.iter() {
+-                match entry.entry_type.enum_value() {
+-                    Ok(FileType::Dir) => {
+-                        if let Ok(mut tmp) = read_empty_dirs_recursive(
+-                            &path.join(&entry.name),
+-                            &prefix.join(&entry.name),
+-                            include_hidden,
+-                        ) {
+-                            for entry in tmp.drain(0..) {
+-                                dirs.push(entry);
+-                            }
++                if let Ok(FileType::Dir) = entry.entry_type.enum_value() {
++                    if let Ok(mut tmp) = read_empty_dirs_recursive(
++                        &path.join(&entry.name),
++                        &prefix.join(&entry.name),
++                        include_hidden,
++                    ) {
++                        for entry in tmp.drain(0..) {
++                            dirs.push(entry);
+                         }
+                     }
+-                    _ => {}
+                 }
+             }
+         }
+@@ -232,7 +229,7 @@ pub fn get_empty_dirs_recursive(
+ 
+ #[inline]
+ pub fn is_file_exists(file_path: &str) -> bool {
+-    return Path::new(file_path).exists();
++    Path::new(file_path).exists()
+ }
+ 
+ #[inline]
+@@ -883,8 +880,8 @@ pub fn rename_file(path: &str, new_name: &str) -> ResultType<()> {
+         let dir = path
+             .parent()
+             .ok_or(anyhow!("Parent directoy of {path:?} not exists"))?;
+-        let new_path = dir.join(&new_name);
+-        std::fs::rename(&path, &new_path)?;
++        let new_path = dir.join(new_name);
++        std::fs::rename(path, &new_path)?;
+         Ok(())
+     } else {
+         bail!("{path:?} not exists");
+diff --git a/src/lib.rs b/src/lib.rs
+index 9475b96..36541b4 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -107,7 +107,6 @@ pub type ResultType<F, E = anyhow::Error> = anyhow::Result<F, E>;
+ 
+ /// Certain router and firewalls scan the packet and if they
+ /// find an IP address belonging to their pool that they use to do the NAT mapping/translation, so here we mangle the ip address
+-
+ pub struct AddrMangle();
+ 
+ #[inline]
+@@ -174,7 +173,7 @@ impl AddrMangle {
+         let mut padded = [0u8; 16];
+         padded[..bytes.len()].copy_from_slice(bytes);
+         let number = u128::from_le_bytes(padded);
+-        let tm = (number >> 17) & (u32::max_value() as u128);
++        let tm = (number >> 17) & (u32::MAX as u128);
+         let ip = (((number >> 49) - tm) as u32).to_le_bytes();
+         let port = (number & 0xFFFFFF) - (tm & 0xFFFF);
+         SocketAddr::V4(SocketAddrV4::new(
+@@ -214,7 +213,7 @@ pub fn gen_version() {
+     println!("cargo:rerun-if-changed=Cargo.toml");
+     use std::io::prelude::*;
+     let mut file = File::create("./src/version.rs").unwrap();
+-    for line in read_lines("Cargo.toml").unwrap().flatten() {
++    for line in read_lines("Cargo.toml").unwrap().map_while(Result::ok) {
+         let ab: Vec<&str> = line.split('=').map(|x| x.trim()).collect();
+         if ab.len() == 2 && ab[0] == "version" {
+             file.write_all(format!("pub const VERSION: &str = {};\n", ab[1]).as_bytes())
+diff --git a/src/mem.rs b/src/mem.rs
+index 90a5d6d..ded02ce 100644
+--- a/src/mem.rs
++++ b/src/mem.rs
+@@ -1,4 +1,9 @@
+-/// SAFETY: the returned Vec must not be resized or reserverd
++/// Allocate an empty byte vector with the requested layout.
++///
++/// # Safety
++/// `cap` must be nonzero and `align` must equal `align_of::<u8>()` (1), so
++/// the vector deallocates with the same layout used for allocation. Increasing
++/// its length requires initializing the corresponding bytes first.
+ pub unsafe fn aligned_u8_vec(cap: usize, align: usize) -> Vec<u8> {
+     use std::alloc::*;
+ 
+diff --git a/src/password_security.rs b/src/password_security.rs
+index 5c04cc9..ef49813 100644
+--- a/src/password_security.rs
++++ b/src/password_security.rs
+@@ -106,15 +106,13 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
+ // note: s.len() return length in bytes, s.chars().count() return char count
+ //       &[..2] return the left 2 bytes, s.chars().take(2) return the left 2 chars
+ pub fn decrypt_str_or_original(s: &str, current_version: &str) -> (String, bool, bool) {
+-    if s.len() > VERSION_LEN {
+-        if s.starts_with("00") {
+-            if let Ok(v) = decrypt(s[VERSION_LEN..].as_bytes()) {
+-                return (
+-                    String::from_utf8_lossy(&v).to_string(),
+-                    true,
+-                    "00" != current_version,
+-                );
+-            }
++    if s.len() > VERSION_LEN && s.starts_with("00") {
++        if let Ok(v) = decrypt(&s.as_bytes()[VERSION_LEN..]) {
++            return (
++                String::from_utf8_lossy(&v).to_string(),
++                true,
++                "00" != current_version,
++            );
+         }
+     }
+ 
+@@ -157,7 +155,9 @@ pub fn decrypt_vec_or_original(v: &[u8], current_version: &str) -> (Vec<u8>, boo
+ 
+ fn encrypt(v: &[u8]) -> Result<String, ()> {
+     if !v.is_empty() {
+-        symmetric_crypt(v, true).map(|v| base64::encode(v, base64::Variant::Original))
++        symmetric_crypt(v, true)
++            .map(|v| base64::encode(v, base64::Variant::Original))
++            .map_err(|_| ())
+     } else {
+         Err(())
+     }
+@@ -165,25 +165,30 @@ fn encrypt(v: &[u8]) -> Result<String, ()> {
+ 
+ fn decrypt(v: &[u8]) -> Result<Vec<u8>, ()> {
+     if !v.is_empty() {
+-        base64::decode(v, base64::Variant::Original).and_then(|v| symmetric_crypt(&v, false))
++        base64::decode(v, base64::Variant::Original)
++            .and_then(|v| symmetric_crypt(&v, false).map_err(|_| ()))
+     } else {
+         Err(())
+     }
+ }
+ 
+-pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
++#[derive(Debug, thiserror::Error)]
++#[error("symmetric encryption or authentication failed")]
++pub struct SymmetricCryptError;
++
++pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, SymmetricCryptError> {
+     use sodiumoxide::crypto::secretbox;
+     use std::convert::TryInto;
+ 
+     let mut keybuf = crate::get_uuid();
+     keybuf.resize(secretbox::KEYBYTES, 0);
+-    let key = secretbox::Key(keybuf.try_into().map_err(|_| ())?);
++    let key = secretbox::Key(keybuf.try_into().map_err(|_| SymmetricCryptError)?);
+     let nonce = secretbox::Nonce([0; secretbox::NONCEBYTES]);
+ 
+     if encrypt {
+         Ok(secretbox::seal(data, &nonce, &key))
+     } else {
+-        secretbox::open(data, &nonce, &key)
++        secretbox::open(data, &nonce, &key).map_err(|_| SymmetricCryptError)
+     }
+ }
+ 
+diff --git a/src/platform/linux.rs b/src/platform/linux.rs
+index 60c8714..7ab2747 100644
+--- a/src/platform/linux.rs
++++ b/src/platform/linux.rs
+@@ -118,7 +118,7 @@ pub fn get_display_server_of_session(session: &str) -> String {
+ #[inline]
+ fn line_values(indices: &[usize], line: &str) -> Vec<String> {
+     indices
+-        .into_iter()
++        .iter()
+         .map(|idx| line.split_whitespace().nth(*idx).unwrap_or("").to_owned())
+         .collect::<Vec<String>>()
+ }
+@@ -147,12 +147,11 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
+             if line.contains("seat0") {
+                 if let Some(sid) = line.split_whitespace().next() {
+                     if is_active(sid) {
+-                        if ignore_gdm_wayland {
+-                            if is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
+-                                && get_display_server_of_session(sid) == DISPLAY_SERVER_WAYLAND
+-                            {
+-                                continue;
+-                            }
++                        if ignore_gdm_wayland
++                            && is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
++                            && get_display_server_of_session(sid) == DISPLAY_SERVER_WAYLAND
++                        {
++                            continue;
+                         }
+                         return line_values(indices, line);
+                     }
+@@ -168,12 +167,11 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
+             if let Some(sid) = line.split_whitespace().next() {
+                 if is_active(sid) {
+                     let d = get_display_server_of_session(sid);
+-                    if ignore_gdm_wayland {
+-                        if is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
+-                            && d == DISPLAY_SERVER_WAYLAND
+-                        {
+-                            continue;
+-                        }
++                    if ignore_gdm_wayland
++                        && is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
++                        && d == DISPLAY_SERVER_WAYLAND
++                    {
++                        continue;
+                     }
+                     if d == "tty" {
+                         continue;
+@@ -218,8 +216,8 @@ pub fn run_cmds_trim_newline(cmds: &str) -> ResultType<String> {
+         .args(vec!["-c", cmds])
+         .output()?;
+     let out = String::from_utf8_lossy(&output.stdout);
+-    Ok(if out.ends_with('\n') {
+-        out[..out.len() - 1].to_string()
++    Ok(if let Some(stripped) = out.strip_suffix('\n') {
++        stripped.to_string()
+     } else {
+         out.to_string()
+     })
+diff --git a/src/proxy.rs b/src/proxy.rs
+index 34d2c51..0c2ae67 100644
+--- a/src/proxy.rs
++++ b/src/proxy.rs
+@@ -56,7 +56,6 @@ const MAXIMUM_RESPONSE_HEADERS: usize = 16;
+ const DEFINE_TIME_OUT: u64 = 600;
+ 
+ pub trait IntoUrl {
+-    
+     // Besides parsing as a valid `Url`, the `Url` must be a valid
+     // `http::Uri`, in that it makes sense to use in a network request.
+     fn into_url(self) -> Result<Url, ProxyError>;
+@@ -78,7 +77,7 @@ impl IntoUrl for Url {
+     }
+ }
+ 
+-impl<'a> IntoUrl for &'a str {
++impl IntoUrl for &str {
+     fn into_url(self) -> Result<Url, ProxyError> {
+         Url::parse(self)
+             .map_err(ProxyError::UrlParseScheme)?
+@@ -90,7 +89,7 @@ impl<'a> IntoUrl for &'a str {
+     }
+ }
+ 
+-impl<'a> IntoUrl for &'a String {
++impl IntoUrl for &String {
+     fn into_url(self) -> Result<Url, ProxyError> {
+         (&**self).into_url()
+     }
+@@ -100,7 +99,7 @@ impl<'a> IntoUrl for &'a String {
+     }
+ }
+ 
+-impl<'a> IntoUrl for String {
++impl IntoUrl for String {
+     fn into_url(self) -> Result<Url, ProxyError> {
+         (&*self).into_url()
+     }
+@@ -201,7 +200,7 @@ impl ProxyScheme {
+             addrs
+                 .into_iter()
+                 .next()
+-                .ok_or_else(|| ProxyError::UrlParseScheme(url::ParseError::EmptyHost))
++                .ok_or(ProxyError::UrlParseScheme(url::ParseError::EmptyHost))
+         };
+ 
+         let mut scheme: Self = match url.scheme() {
+@@ -223,7 +222,7 @@ impl ProxyScheme {
+         match self {
+             ProxyScheme::Http { host, .. } => self.resolve_host(host, 80).await,
+             ProxyScheme::Https { host, .. } => self.resolve_host(host, 443).await,
+-            ProxyScheme::Socks5 { addr, .. } => Ok(addr.clone()),
++            ProxyScheme::Socks5 { addr, .. } => Ok(*addr),
+         }
+     }
+ 
+@@ -317,10 +316,7 @@ impl Proxy {
+     }
+ 
+     pub fn is_http_or_https(&self) -> bool {
+-        return match self.intercept {
+-            ProxyScheme::Socks5 { .. } => false,
+-            _ => true,
+-        };
++        !matches!(self.intercept, ProxyScheme::Socks5 { .. })
+     }
+ 
+     pub fn from_conf(conf: &Socks5Server, ms_timeout: Option<u64>) -> Result<Self, ProxyError> {
+@@ -375,7 +371,7 @@ impl Proxy {
+ 
+         let addr = stream.local_addr()?;
+ 
+-        return match self.intercept {
++        match self.intercept {
+             ProxyScheme::Http { .. } => {
+                 info!("Connect to remote http proxy server: {}", proxy);
+                 let stream =
+@@ -425,7 +421,7 @@ impl Proxy {
+                     0,
+                 ))
+             }
+-        };
++        }
+     }
+ 
+     #[cfg(any(target_os = "windows", target_os = "macos"))]
+@@ -455,8 +451,17 @@ impl Proxy {
+         Input: AsyncRead + AsyncWrite + Unpin,
+         T: IntoTargetAddr<'a>,
+     {
++        use rustls_platform_verifier::BuilderVerifierExt;
+         use std::convert::TryFrom;
+-        let verifier = rustls_platform_verifier::tls_config();
++        let provider = tokio_rustls::rustls::crypto::ring::default_provider();
++        let verifier = tokio_rustls::rustls::ClientConfig::builder_with_provider(
++            std::sync::Arc::new(provider),
++        )
++        .with_safe_default_protocol_versions()
++        .map_err(IoError::other)?
++        .with_platform_verifier()
++        .map_err(IoError::other)?
++        .with_no_client_auth();
+         let url_domain = self.intercept.get_domain()?;
+ 
+         let domain = rustls_pki_types::ServerName::try_from(url_domain.as_str())
+@@ -548,7 +553,7 @@ where
+     let response_bytes = response_string.into_bytes();
+     response.parse(&response_bytes)?;
+ 
+-    return match response.code {
++    match response.code {
+         Some(code) => {
+             if code == 200 {
+                 Ok(())
+@@ -557,5 +562,5 @@ where
+             }
+         }
+         None => Err(ProxyError::NoHttpCode),
+-    };
++    }
+ }
+diff --git a/src/tcp.rs b/src/tcp.rs
+index c85338d..1248bc8 100644
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -1,4 +1,4 @@
+-use crate::{bail, bytes_codec::BytesCodec, ResultType, config::Socks5Server, proxy::Proxy};
++use crate::{bail, bytes_codec::BytesCodec, config::Socks5Server, proxy::Proxy, ResultType};
+ use anyhow::Context as AnyhowCtx;
+ use bytes::{BufMut, Bytes, BytesMut};
+ use futures::{SinkExt, StreamExt};
+@@ -8,7 +8,7 @@ use sodiumoxide::crypto::{
+     secretbox::{self, Key, Nonce},
+ };
+ use std::{
+-    io::{self, Error, ErrorKind},
++    io::{self, Error},
+     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+     ops::{Deref, DerefMut},
+     pin::Pin,
+@@ -62,7 +62,10 @@ impl DerefMut for DynTcpStream {
+     }
+ }
+ 
+-pub(crate) fn new_socket(addr: std::net::SocketAddr, reuse: bool) -> Result<TcpSocket, std::io::Error> {
++pub(crate) fn new_socket(
++    addr: std::net::SocketAddr,
++    reuse: bool,
++) -> Result<TcpSocket, std::io::Error> {
+     let socket = match addr {
+         std::net::SocketAddr::V4(..) => TcpSocket::new_v4()?,
+         std::net::SocketAddr::V6(..) => TcpSocket::new_v6()?,
+@@ -189,11 +192,7 @@ impl FramedStream {
+ 
+     #[inline]
+     pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {
+-        if let Ok(res) = super::timeout(ms, self.next()).await {
+-            res
+-        } else {
+-            None
+-        }
++        super::timeout(ms, self.next()).await.unwrap_or_default()
+     }
+ 
+     pub fn set_key(&mut self, key: Key) {
+@@ -310,14 +309,14 @@ impl Encrypt {
+                 bytes.put_slice(&res);
+                 Ok(())
+             }
+-            Err(()) => Err(Error::new(ErrorKind::Other, "decryption error")),
++            Err(()) => Err(Error::other("decryption error")),
+         }
+     }
+ 
+     pub fn enc(&mut self, data: &[u8]) -> Vec<u8> {
+         self.1 += 1;
+         let nonce = FramedStream::get_nonce(self.1);
+-        secretbox::seal(&data, &nonce, &self.0)
++        secretbox::seal(data, &nonce, &self.0)
+     }
+ 
+     pub fn decode(
+@@ -332,7 +331,7 @@ impl Encrypt {
+         let mut pk_ = [0u8; box_::PUBLICKEYBYTES];
+         pk_[..].copy_from_slice(their_pk_b);
+         let their_pk_b = box_::PublicKey(pk_);
+-        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, &our_sk_b)
++        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, our_sk_b)
+             .map_err(|_| anyhow::anyhow!("Handshake failed: box decryption failure"))?;
+         if symmetric_key.len() != secretbox::KEYBYTES {
+             anyhow::bail!("Handshake failed: invalid secret key length from peer");
+diff --git a/src/udp.rs b/src/udp.rs
+index fbdf332..2a6f319 100644
+--- a/src/udp.rs
++++ b/src/udp.rs
+@@ -65,7 +65,7 @@ impl FramedSocket {
+         )))
+     }
+ 
+-    pub async fn new_proxy<'a, 't, P: ToProxyAddrs, T: ToSocketAddrs>(
++    pub async fn new_proxy<'a, P: ToProxyAddrs, T: ToSocketAddrs>(
+         proxy: P,
+         local: T,
+         username: &'a str,
+@@ -151,13 +151,9 @@ impl FramedSocket {
+         &mut self,
+         ms: u64,
+     ) -> Option<ResultType<(BytesMut, TargetAddr<'static>)>> {
+-        if let Ok(res) =
+-            tokio::time::timeout(std::time::Duration::from_millis(ms), self.next()).await
+-        {
+-            res
+-        } else {
+-            None
+-        }
++        tokio::time::timeout(std::time::Duration::from_millis(ms), self.next())
++            .await
++            .unwrap_or_default()
+     }
+ 
+     pub fn local_addr(&self) -> Option<SocketAddr> {

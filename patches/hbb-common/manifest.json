@@ -1,0 +1,50 @@
+{
+  "revision": "83419b6549636ee39dacef7776c473f5802e08d6",
+  "patch_sha256": "0b836640fc2ecfdbb03ec37c7a5a31b6d50b2b36e1f3b3630ebaa1411b3b99d0",
+  "files": {
+    "Cargo.toml": {
+      "before": "e057b300b9fb82a091383526807b2c7fb166e21839f917d69facad68cfc6cb57",
+      "after": "6335f972d724caa407212c7db57d8e55fbf048730d13e0eab79b7d38f6292617"
+    },
+    "src/config.rs": {
+      "before": "8e4d62d4870e14ccbc3ddbfb7d71f13662db3fe833090ef46194dcd4e2581a5a",
+      "after": "ab19d9ef11d70d3a3288f5fba4fa2efa03842e5aec9bdadc09924293418f388e"
+    },
+    "src/fingerprint.rs": {
+      "before": "62d46014c029e7869d8b470e33a3ca51db4a8e1267676632052bf729bf7dc164",
+      "after": "f9472c54e6d110e384285ca4fafddd3b0b3c984dd1e0600f8271fdf3c7c6f7c4"
+    },
+    "src/fs.rs": {
+      "before": "90f11d0b0d590ad0e173bd8899476a11a08b25afe450ac7f8d36ada326ab659d",
+      "after": "f033e76b885cd13ebf6cc213cb48b86964a7fc62fe58700b5085c919322b114b"
+    },
+    "src/lib.rs": {
+      "before": "ffc5a76d8491d3802dc5ee97a2168688bb7d54d2ad0b096c61e400ce62edafa6",
+      "after": "bae4985b5779fd2f985472e049b2650fcc74cf6f33ce579799514ca46aa6c819"
+    },
+    "src/mem.rs": {
+      "before": "5540d99e7513744accac8057e1d7db6a004753a7ce600ab6b8a62714866f1849",
+      "after": "b71c0c853036fb09c4fdc0ac8c89b945bcd2d3f40ab66c1e061c8586fc3bb8bc"
+    },
+    "src/password_security.rs": {
+      "before": "9331f09289a0d79f782c4d9b3bcb19f89a78237c87f0a535604e005d708ec94a",
+      "after": "e86303e3d75ab1fc79e6dc8c35fdc00c58efead3099220174e6cee6fd39c760b"
+    },
+    "src/platform/linux.rs": {
+      "before": "1eeb89d1cb1cab0040827aaaa2c9a890b101cfba73332addd8ce9e4d07129312",
+      "after": "83d1119aff206e6702e3fdab9c2f46a88fb579afb1b736b430b0740710f56060"
+    },
+    "src/proxy.rs": {
+      "before": "9d9fb107caae38af9ee4d3862eef99a06fca1241bf6471151c46f87406c80114",
+      "after": "253a98130208ea51cf8f1a5b93509b9935a91850cc29ceb3c8cb260a5c592dbb"
+    },
+    "src/tcp.rs": {
+      "before": "dfe44f54801648546bd034fc4b59fd9406f37fdd8736369a2f7dea73745843de",
+      "after": "ee62000d73fb9ee3bfd432d8b4704e760220a92e7271b7580a6abd316b498c29"
+    },
+    "src/udp.rs": {
+      "before": "c7da75a4db64fea07f6dce1ad5a791fb4d791b15dcc41672129b0f6438ad8b2f",
+      "after": "e08cb548ad0885f00fb4db07f6091cf96c5138156fb0bb0705a0f849d6ce134a"
+    }
+  }
+}
