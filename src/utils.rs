@@ -1,6 +1,6 @@
 use dns_lookup::{lookup_addr, lookup_host};
 use hbb_common::{bail, ResultType};
-use sodiumoxide::crypto::sign;
+use libsodium_rs::crypto_sign as sign;
 use std::{
     env,
     net::{IpAddr, TcpStream},
@@ -12,7 +12,7 @@ fn print_help() {
         "Usage:
     rustdesk-utils [command]\n
 Available Commands:
-    genkeypair                                   Generate a new keypair
+    genkeypair [private-key-file]                Generate a keypair (default file: id_ed25519)
     validatekeypair [public key] [secret key]    Validate an existing keypair
     doctor [rustdesk-server]                     Check for server connection problems"
     );
@@ -24,48 +24,32 @@ fn error_then_help(msg: &str) {
     print_help();
 }
 
-fn gen_keypair() {
-    let (pk, sk) = sign::gen_keypair();
-    let public_key = base64::encode(pk);
-    let secret_key = base64::encode(sk);
-    println!("Public Key:  {public_key}");
-    println!("Secret Key:  {secret_key}");
+fn gen_keypair(path: &std::path::Path) -> ResultType<()> {
+    use std::io::Write;
+    let (pk, sk) = hbb_common::generate_signing_keypair();
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(base64::encode(sk).as_bytes())?;
+    file.sync_all()?;
+    println!("Public Key:  {}", base64::encode(pk));
+    println!("Private key saved to the requested file.");
+    Ok(())
 }
 
 fn validate_keypair(pk: &str, sk: &str) -> ResultType<()> {
-    let sk1 = base64::decode(sk);
-    if sk1.is_err() {
-        bail!("Invalid secret key");
-    }
-    let sk1 = sk1.unwrap();
-
-    let secret_key = sign::SecretKey::from_slice(sk1.as_slice());
-    if secret_key.is_none() {
-        bail!("Invalid Secret key");
-    }
-    let secret_key = secret_key.unwrap();
-
-    let pk1 = base64::decode(pk);
-    if pk1.is_err() {
-        bail!("Invalid public key");
-    }
-    let pk1 = pk1.unwrap();
-
-    let public_key = sign::PublicKey::from_slice(pk1.as_slice());
-    if public_key.is_none() {
-        bail!("Invalid Public key");
-    }
-    let public_key = public_key.unwrap();
-
-    let random_data_to_test = b"This is meh.";
-    let signed_data = sign::sign(random_data_to_test, &secret_key);
-    let verified_data = sign::verify(&signed_data, &public_key);
-    if verified_data.is_err() {
-        bail!("Key pair is INVALID");
-    }
-    let verified_data = verified_data.unwrap();
-
-    if random_data_to_test != &verified_data[..] {
+    let secret_bytes = base64::decode(sk)?;
+    let secret_key = sign::SecretKey::from_bytes(&secret_bytes)?;
+    let public_bytes = base64::decode(pk)?;
+    let public_key = sign::PublicKey::from_bytes(&public_bytes)?;
+    let message = b"This is meh.";
+    let signed = sign::sign(message, &secret_key)?;
+    if sign::verify(&signed, &public_key).as_deref() != Some(message.as_slice()) {
         bail!("Key pair is INVALID");
     }
 
@@ -147,7 +131,15 @@ fn main() {
 
     let command = args[1].to_lowercase();
     match command.as_str() {
-        "genkeypair" => gen_keypair(),
+        "genkeypair" => {
+            let path = args.get(2).map(String::as_str).unwrap_or("id_ed25519");
+            if gen_keypair(std::path::Path::new(path)).is_err() {
+                eprintln!(
+                    "Unable to create private key file; existing files are never overwritten."
+                );
+                process::exit(1);
+            }
+        }
         "validatekeypair" => {
             if args.len() <= 3 {
                 error_then_help("You must supply both the public and the secret key");
@@ -166,5 +158,43 @@ fn main() {
             doctor(args[2].as_str());
         }
         _ => print_help(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_private_key_is_valid_and_existing_file_is_preserved() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("key");
+        gen_keypair(&path).unwrap();
+        let encoded = std::fs::read_to_string(&path).unwrap();
+        let key = base64::decode(&encoded).unwrap();
+        let public = base64::encode(&key[32..]);
+        validate_keypair(&public, &encoded).unwrap();
+        assert!(gen_keypair(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), encoded);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_key_generation_rejects_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        std::fs::write(&target, b"untouched").unwrap();
+        let link = directory.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(gen_keypair(&link).is_err());
+        assert_eq!(std::fs::read(target).unwrap(), b"untouched");
     }
 }
