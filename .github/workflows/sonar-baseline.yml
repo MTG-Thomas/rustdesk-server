@@ -47,7 +47,18 @@ jobs:
           rustup component add llvm-tools-preview --toolchain 1.90.0
           cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
           rustup default 1.90.0
-          python3 -c "from pathlib import Path; p=Path('sonar-project.properties'); Path('baseline/sonar-project.properties').write_text('\\n'.join(line for line in p.read_text().splitlines() if not line.startswith('sonar.rust.clippyReport.'))+'\\n')"
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          properties = []
+          for line in Path('sonar-project.properties').read_text().splitlines():
+              if line.startswith(('sonar.rust.clippyReport.', 'sonar.python.coverage.')):
+                  continue
+              if line.startswith('sonar.sources='):
+                  paths = line.split('=', 1)[1].split(',')
+                  line = 'sonar.sources=' + ','.join(path for path in paths if (Path('baseline') / path).is_dir())
+              properties.append(line)
+          Path('baseline/sonar-project.properties').write_text('\n'.join(properties) + '\n')
+          PYTHON
           cd baseline
           mkdir -p artifacts
           cargo +1.90.0 llvm-cov --locked --workspace --all-features --remap-path-prefix --ignore-filename-regex '(^|/)(target/|src/version\.rs$)' --lcov --output-path artifacts/lcov.info

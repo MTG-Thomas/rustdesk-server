@@ -6,6 +6,9 @@ on:
   merge_group:
   workflow_dispatch:
   workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -28,9 +31,7 @@ jobs:
           ref: ${{ matrix.check == 'coverage' && (github.event.pull_request.head.sha || github.sha) || '' }}
       - name: Exercise patch provenance and dirty-work protection
         run: |
-          python3 -m unittest discover -s tests -p test_common_patch.py
-          python3 -m unittest discover -s tests -p test_sonar_evidence.py
-          python3 -m unittest discover -s tests -p test_sonar_baseline.py
+          python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
       - name: Install native build prerequisites
@@ -79,6 +80,12 @@ jobs:
           rustup component add llvm-tools-preview --toolchain 1.90.0
           cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
           mkdir -p artifacts
+          python3 -m venv "$RUNNER_TEMP/python-coverage"
+          "$RUNNER_TEMP/python-coverage/bin/pip" install coverage==7.10.7
+          export PATH="$RUNNER_TEMP/python-coverage/bin:$PATH"
+          coverage run -m unittest discover -s tests -p 'test_*.py'
+          coverage combine
+          coverage xml
           cargo +1.90.0 llvm-cov --locked --workspace --all-features --remap-path-prefix --ignore-filename-regex '(^|/)(target/|src/version\.rs$)' --lcov --output-path artifacts/lcov.info
           cargo +1.90.0 clippy --locked --workspace --all-targets --all-features --message-format=json > artifacts/clippy.json
           python3 scripts/sonar_evidence.py write
@@ -138,9 +145,7 @@ jobs:
           submodules: recursive
       - name: Exercise patch provenance and dirty-work protection
         run: |
-          python3 -m unittest discover -s tests -p test_common_patch.py
-          python3 -m unittest discover -s tests -p test_sonar_evidence.py
-          python3 -m unittest discover -s tests -p test_sonar_baseline.py
+          python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
       - name: Install Node for the authored UI assets
@@ -246,3 +251,28 @@ jobs:
       branch: codex/websocket-registration
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  admission:
+    name: Repository / admission
+    if: always()
+    needs: [rust, image, codeql, sonar, sonar-baseline, sonar-maintained-baseline]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require completed source, artifact, and quality evidence
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          MAINTAINED: ${{ (github.event.pull_request.base.ref || github.ref_name) == 'codex/websocket-registration' }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          results = json.loads(os.environ['RESULTS'])
+          required = ['rust', 'image', 'codeql', 'sonar', 'sonar-baseline']
+          if os.environ['MAINTAINED'] == 'true':
+              required.append('sonar-maintained-baseline')
+          failed = {name: results[name]['result'] for name in required if results[name]['result'] != 'success'}
+          if failed:
+              raise SystemExit(f'Admission evidence is incomplete: {failed}')
+          print('All applicable source and artifact gates completed successfully')
+          PYTHON

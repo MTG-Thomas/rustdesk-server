@@ -23,6 +23,7 @@ class SonarEvidenceTests(unittest.TestCase):
         (self.root / "patches/hbb-common/manifest.json").write_text("{}")
         (self.root / "artifacts/lcov.info").write_text("SF:src/main.rs\nDA:1,1\nend_of_record\n")
         (self.root / "artifacts/clippy.json").write_text("{}\n")
+        (self.root / "artifacts/python-coverage.xml").write_text("<coverage/>")
         for mocked in (patch.object(MODULE, "ROOT", self.root), patch.dict(os.environ, {"SOURCE_SHA": "candidate", "BASE_SHA": "base"}), patch.object(MODULE.subprocess, "check_output", return_value="candidate\n")):
             mocked.start()
             self.addCleanup(mocked.stop)

@@ -1,0 +1,19 @@
+[run]
+branch = True
+relative_files = True
+patch = subprocess
+include =
+    scripts/*.py
+    */scripts/*.py
+
+# Patch tests execute an exact copy in their isolated fixture repository.
+[paths]
+scripts =
+    scripts
+    /tmp/rustdesk-patch-test-*/scripts
+
+[report]
+include = scripts/*.py
+
+[xml]
+output = artifacts/python-coverage.xml

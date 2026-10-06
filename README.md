@@ -1,6 +1,11 @@
 # RustDesk Server Program
 
-[![build](https://github.com/rustdesk/rustdesk-server/actions/workflows/build.yaml/badge.svg)](https://github.com/rustdesk/rustdesk-server/actions/workflows/build.yaml)
+This is MTG’s maintained fork of `rustdesk/rustdesk-server`. See
+[maintenance and verification](MAINTENANCE.md) for branch boundaries, source
+patches, security checks, and artifact evidence. Upstream downloads and manuals
+below describe the upstream project.
+
+[![Repository validation](https://github.com/MTG-Thomas/rustdesk-server/actions/workflows/repo-validation.yml/badge.svg?branch=master)](https://github.com/MTG-Thomas/rustdesk-server/actions/workflows/repo-validation.yml)
 
 [**Download**](https://github.com/rustdesk/rustdesk-server/releases)
 
@@ -21,8 +26,14 @@ Self-host your own RustDesk server, it is free and open source.
 
 ## How to build manually
 
+Use Rust 1.90.0 and install the native build prerequisites listed in
+`.github/workflows/repo-validation.yml`. Apply the recorded common-library patch
+before building; its script rejects modified or incompatible preimages.
+
 ```bash
-cargo build --release
+git submodule update --init --recursive
+python3 scripts/apply_common_patch.py
+cargo +1.90.0 build --locked --release
 ```
 
 Three executables will be generated in target/release.

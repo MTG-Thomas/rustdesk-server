@@ -10,8 +10,7 @@ Initialize recursive submodules, then run these commands with Rust 1.90.0 and
 the repository's native build prerequisites installed:
 
 ```sh
-python3 -m unittest discover -s tests -p test_common_patch.py
-python3 -m unittest discover -s tests -p test_sonar_evidence.py
+python3 -m unittest discover -s tests -p 'test_*.py'
 python3 scripts/apply_common_patch.py
 cargo +1.90.0 check --locked --workspace
 cargo +1.90.0 fmt --all -- --check
@@ -39,7 +38,8 @@ Review extraction diagnostics as well as finding counts: a successful upload wit
 incomplete extraction does not qualify source analysis.
 
 The Rust Sonar adapter uses actual LCOV and Clippy JSON produced from the exact
-candidate head. The consuming job verifies head, base, patch-manifest digest, and
+candidate head, plus real Python helper coverage from the same checkout.
+The consuming job verifies head, base, patch-manifest digest, and
 report digests. Fork pull requests receive no scanning credentials. Generated
 version/protobuf build output is excluded from the LCOV import; authored server
 and common-library source remain covered by analysis.
@@ -51,6 +51,8 @@ The maintained branch is separately initialized from
 its changes are compared with that branch rather than the newer default source.
 Existing backlog is report-only; this initialization is not a clean quality-gate
 attestation or a merge/deployment candidate. Candidate scans await their own gate.
+The final admission job fails when required evidence fails, is skipped, or is
+unavailable; a skipped downstream scanner cannot become a passing admission check.
 Before relying on Sonar for admission, verify project/analysis/head/base identity,
 actual indexed files and imported coverage, effective exclusions, new-code policy,
 small-change behavior, and supported branch/PR analysis. Missing evidence is pending.
