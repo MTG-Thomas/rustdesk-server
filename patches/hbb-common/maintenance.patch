@@ -1,0 +1,1236 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 6ad3012..0a20811 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -58,9 +58,9 @@ tokio-rustls = { version = "0.26", features = [
+     "ring",
+ ], default-features = false }
+ tokio-native-tls = "0.3"
+-tokio-tungstenite = { version = "0.26", features = ["native-tls", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+-tungstenite = { version = "0.26", features = ["native-tls", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+-rustls-platform-verifier = "0.6"
++tokio-tungstenite = { version = "0.30", features = ["native-tls", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
++tungstenite = { version = "0.30", features = ["native-tls", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
++rustls-platform-verifier = "0.7"
+ rustls-pki-types = "1.11"
+ rustls-native-certs = "0.8"
+ webpki-roots = "1.0.4"
+@@ -96,5 +96,5 @@ osascript = "0.3"
+ sctk = { package = "smithay-client-toolkit", version = "0.20.0", default-features = false, features = [
+     "calloop",
+ ] }
+-users = { version = "0.11" }
++users = { package = "uzers", version = "0.12.2" }
+ x11 = "2.21"
+diff --git a/examples/webrtc.rs b/examples/webrtc.rs
+index 2c993ca..b253537 100644
+--- a/examples/webrtc.rs
++++ b/examples/webrtc.rs
+@@ -3,10 +3,10 @@ extern crate hbb_common;
+ #[cfg(feature = "webrtc")]
+ use hbb_common::webrtc::WebRTCStream;
+ 
+-use std::io::Write;
+ use anyhow::Result;
+ use bytes::Bytes;
+ use clap::{Arg, Command};
++use std::io::Write;
+ use tokio::time::Duration;
+ 
+ #[cfg(not(feature = "webrtc"))]
+@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
+         // Wait for the answer to be pasted
+         println!(
+             "Start new terminal run: \n{} \ncopy remote endpoint and paste here",
+-            format!(
++            format_args!(
+                 "cargo r --features webrtc --example webrtc -- --offer {}",
+                 local_endpoint
+             )
+diff --git a/src/config.rs b/src/config.rs
+index 707bbe0..1a87651 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -957,7 +957,7 @@ impl Config {
+                 return ss;
+             }
+         }
+-        return RENDEZVOUS_SERVERS.iter().map(|x| x.to_string()).collect();
++        RENDEZVOUS_SERVERS.iter().map(|x| x.to_string()).collect()
+     }
+ 
+     pub fn reset_online() {
+@@ -1296,10 +1296,9 @@ impl Config {
+         }
+         let (preset_storage, preset_salt) = Self::get_preset_password_storage_and_salt();
+         if preset_permanent_password_storage_matches_plain(&preset_storage, &preset_salt, password)
++            && CONFIG.read().unwrap().password.is_empty()
+         {
+-            if CONFIG.read().unwrap().password.is_empty() {
+-                return true;
+-            }
++            return true;
+         }
+ 
+         let mut config = CONFIG.write().unwrap();
+@@ -1492,7 +1491,7 @@ impl Config {
+                     .read()
+                     .unwrap()
+                     .get(key)
+-                    .map_or(false, |x| *x == value)
++                    .is_some_and(|x| *x == value)
+             };
+             let contains_url = DEFAULT_SETTINGS
+                 .read()
+@@ -1622,8 +1621,8 @@ impl Config {
+         trusted_devices.retain(|d| !d.outdate());
+         let devices = serde_json::to_string(&trusted_devices).unwrap_or_default();
+         let max_len = 1024 * 1024;
+-        if devices.bytes().len() > max_len {
+-            log::error!("Trusted devices too large: {}", devices.bytes().len());
++        if devices.len() > max_len {
++            log::error!("Trusted devices too large: {}", devices.len());
+             return;
+         }
+         let devices = encrypt_str_or_original(&devices, PASSWORD_ENC_VERSION, max_len);
+@@ -1640,7 +1639,7 @@ impl Config {
+         Self::set_trusted_devices(devices);
+     }
+ 
+-    pub fn remove_trusted_devices(hwids: &Vec<Bytes>) {
++    pub fn remove_trusted_devices(hwids: &[Bytes]) {
+         let mut devices = Self::get_trusted_devices();
+         devices.retain(|d| !hwids.contains(&d.hwid));
+         Self::set_trusted_devices(devices);
+@@ -1895,7 +1894,7 @@ impl PeerConfig {
+     }
+ 
+     pub fn batch_peers(
+-        all: &Vec<(String, SystemTime, PathBuf)>,
++        all: &[(String, SystemTime, PathBuf)],
+         from: usize,
+         to: Option<usize>,
+     ) -> (Vec<(String, SystemTime, PeerConfig)>, usize) {
+@@ -1916,11 +1915,11 @@ impl PeerConfig {
+         let peers: Vec<_> = all[from..to]
+             .iter()
+             .map(|(id, t, p)| {
+-                let c = PeerConfig::load(&id);
++                let c = PeerConfig::load(id);
+                 if c.info.platform.is_empty() {
+                     fs::remove_file(p).ok();
+                 }
+-                (id.clone(), t.clone(), c)
++                (id.clone(), *t, c)
+             })
+             .filter(|p| !p.2.info.platform.is_empty())
+             .collect();
+@@ -2008,7 +2007,7 @@ impl PeerConfig {
+         D: de::Deserializer<'de>,
+     {
+         let v: i32 = de::Deserialize::deserialize(deserializer)?;
+-        if v >= 10 && v <= 1000 {
++        if (10..=1000).contains(&v) {
+             Ok(v)
+         } else {
+             Ok(Self::default_trackpad_speed())
+@@ -2026,7 +2025,7 @@ impl PeerConfig {
+         D: de::Deserializer<'de>,
+     {
+         let v: i32 = de::Deserialize::deserialize(deserializer)?;
+-        if v >= 20 && v <= 150 {
++        if (20..=150).contains(&v) {
+             Ok(v)
+         } else {
+             Ok(Self::default_edge_scroll_edge_thickness())
+@@ -2764,7 +2763,7 @@ fn is_option_can_save(
+     v: &str,
+ ) -> bool {
+     if overwrite.read().unwrap().contains_key(k)
+-        || defaults.read().unwrap().get(k).map_or(false, |x| x == v)
++        || defaults.read().unwrap().get(k).is_some_and(|x| x == v)
+     {
+         return false;
+     }
+@@ -2777,7 +2776,7 @@ pub fn is_incoming_only() -> bool {
+         .read()
+         .unwrap()
+         .get("conn-type")
+-        .map_or(false, |x| x == ("incoming"))
++        .is_some_and(|x| x == ("incoming"))
+ }
+ 
+ #[inline]
+@@ -2786,7 +2785,7 @@ pub fn is_outgoing_only() -> bool {
+         .read()
+         .unwrap()
+         .get("conn-type")
+-        .map_or(false, |x| x == ("outgoing"))
++        .is_some_and(|x| x == ("outgoing"))
+ }
+ 
+ #[inline]
+@@ -2795,7 +2794,7 @@ fn is_some_hard_opton(name: &str) -> bool {
+         .read()
+         .unwrap()
+         .get(name)
+-        .map_or(false, |x| x == ("Y"))
++        .is_some_and(|x| x == ("Y"))
+ }
+ 
+ #[inline]
+@@ -3386,8 +3385,10 @@ mod tests {
+         let storage = "00".to_owned() + &base64::encode(h1, base64::Variant::Original);
+         let hard_settings = HashMap::from([("password".to_owned(), storage.clone())]);
+ 
+-        let mut config = Config::default();
+-        config.salt = "local1".to_owned();
++        let config = Config {
++            salt: "local1".to_owned(),
++            ..Default::default()
++        };
+ 
+         with_config_and_hard_settings(config, hard_settings, || {
+             assert!(Config::has_permanent_password());
+@@ -3400,8 +3401,10 @@ mod tests {
+     #[test]
+     fn test_local_hashed_permanent_password_without_salt_is_not_reported_as_set() {
+         let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
+-        let mut config = Config::default();
+-        config.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
++        let config = Config {
++            password: encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap(),
++            ..Default::default()
++        };
+ 
+         with_config_and_hard_settings(config, HashMap::new(), || {
+             assert!(!Config::has_permanent_password());
+@@ -3413,8 +3416,10 @@ mod tests {
+     #[test]
+     fn test_invalid_local_hashed_password_does_not_generate_effective_salt() {
+         let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
+-        let mut config = Config::default();
+-        config.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
++        let config = Config {
++            password: encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap(),
++            ..Default::default()
++        };
+ 
+         with_config_and_hard_settings(config, HashMap::new(), || {
+             assert_eq!(Config::get_effective_permanent_password_salt(), "");
+@@ -3427,8 +3432,10 @@ mod tests {
+ 
+     #[test]
+     fn test_legacy_plain_preset_password_uses_local_salt_for_challenge() {
+-        let mut config = Config::default();
+-        config.salt = "local1".to_owned();
++        let config = Config {
++            salt: "local1".to_owned(),
++            ..Default::default()
++        };
+         let hard_settings = HashMap::from([("password".to_owned(), "legacy-password".to_owned())]);
+ 
+         with_config_and_hard_settings(config, hard_settings, || {
+@@ -3460,9 +3467,11 @@ mod tests {
+ 
+     #[test]
+     fn test_validate_or_decrypt_keeps_plaintext_permanent_password_unchanged() {
+-        let mut cfg = Config::default();
+-        cfg.password = "p@ssw0rd".to_owned();
+-        cfg.salt = "".to_owned();
++        let mut cfg = Config {
++            password: "p@ssw0rd".to_owned(),
++            salt: "".to_owned(),
++            ..Default::default()
++        };
+         Config::validate_or_decrypt_permanent_password_storage(&mut cfg).unwrap();
+         assert_eq!(cfg.password, "p@ssw0rd");
+         assert!(cfg.salt.is_empty());
+@@ -3491,10 +3500,12 @@ mod tests {
+         .unwrap();
+         *invalid_payload.last_mut().unwrap() ^= 1;
+ 
+-        let mut cfg = Config::default();
+-        cfg.password = PASSWORD_ENC_VERSION.to_owned()
+-            + &base64::encode(invalid_payload, base64::Variant::Original);
+-        cfg.salt = "salt123".to_owned();
++        let mut cfg = Config {
++            password: PASSWORD_ENC_VERSION.to_owned()
++                + &base64::encode(invalid_payload, base64::Variant::Original),
++            salt: "salt123".to_owned(),
++            ..Default::default()
++        };
+ 
+         assert!(Config::validate_or_decrypt_permanent_password_storage(&mut cfg).is_err());
+     }
+@@ -3533,9 +3544,11 @@ mod tests {
+ 
+     #[test]
+     fn test_store_keeps_existing_enc_id_when_id_is_unchanged() {
+-        let mut cfg = Config::default();
+-        cfg.id = "123456789".to_owned();
+-        cfg.enc_id = encrypt_str_or_original(&cfg.id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
++        let cfg = Config {
++            id: "123456789".to_owned(),
++            enc_id: encrypt_str_or_original("123456789", PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN),
++            ..Default::default()
++        };
+         let original_enc_id = cfg.enc_id.clone();
+ 
+         with_config_and_hard_settings(Config::default(), HashMap::new(), || {
+@@ -3550,8 +3563,10 @@ mod tests {
+     fn test_store_rewrites_enc_id_when_id_changes() {
+         let original_id = "123456789";
+         let updated_id = "987654321";
+-        let mut cfg = Config::default();
+-        cfg.id = updated_id.to_owned();
++        let mut cfg = Config {
++            id: updated_id.to_owned(),
++            ..Default::default()
++        };
+         let original_enc_id =
+             encrypt_str_or_original(original_id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
+         cfg.enc_id = original_enc_id.clone();
+@@ -3594,9 +3609,11 @@ mod tests {
+ 
+     #[test]
+     fn test_set_does_not_convert_plaintext_permanent_password_to_storage_format_in_memory() {
+-        let mut cfg = Config::default();
+-        cfg.password = "legacy-secret".to_owned();
+-        cfg.salt = "".to_owned();
++        let cfg = Config {
++            password: "legacy-secret".to_owned(),
++            salt: "".to_owned(),
++            ..Default::default()
++        };
+ 
+         with_config_and_hard_settings(Config::default(), HashMap::new(), || {
+             assert!(Config::set(cfg));
+@@ -3610,9 +3627,11 @@ mod tests {
+ 
+     #[test]
+     fn test_set_keeps_plaintext_permanent_password_with_current_prefix_in_memory() {
+-        let mut cfg = Config::default();
+-        cfg.password = "01legacy-secret".to_owned();
+-        cfg.salt = "".to_owned();
++        let cfg = Config {
++            password: "01legacy-secret".to_owned(),
++            salt: "".to_owned(),
++            ..Default::default()
++        };
+ 
+         with_config_and_hard_settings(Config::default(), HashMap::new(), || {
+             assert!(Config::set(cfg));
+@@ -3638,8 +3657,10 @@ mod tests {
+ 
+     #[test]
+     fn test_permanent_password_sync_treats_same_encrypted_hash_as_unchanged() {
+-        let mut cfg = Config::default();
+-        cfg.salt = "salt123".to_owned();
++        let mut cfg = Config {
++            salt: "salt123".to_owned(),
++            ..Default::default()
++        };
+         let h1 = compute_permanent_password_h1("p@ssw0rd", &cfg.salt);
+         let encrypted_hash_storage =
+             encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
+@@ -3695,9 +3716,11 @@ mod tests {
+             assert!(cfg.salt.is_empty());
+         }
+ 
+-        let mut cfg = Config::default();
+-        cfg.password = invalid_storage.clone();
+-        cfg.salt = "salt123".to_owned();
++        let mut cfg = Config {
++            password: invalid_storage.clone(),
++            salt: "salt123".to_owned(),
++            ..Default::default()
++        };
+         assert!(Config::apply_permanent_password_storage_for_sync(
+             &mut cfg,
+             &invalid_storage,
+@@ -3725,9 +3748,11 @@ mod tests {
+     fn test_permanent_password_sync_empty_storage_clears_existing_password() {
+         let salt = "salt123";
+         let h1 = compute_permanent_password_h1("p@ssw0rd", salt);
+-        let mut cfg = Config::default();
+-        cfg.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
+-        cfg.salt = salt.to_owned();
++        let mut cfg = Config {
++            password: encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap(),
++            salt: salt.to_owned(),
++            ..Default::default()
++        };
+ 
+         assert!(Config::apply_permanent_password_storage_for_sync(&mut cfg, "", "").unwrap());
+         assert!(cfg.password.is_empty());
+@@ -3738,9 +3763,11 @@ mod tests {
+     fn test_permanent_password_sync_empty_storage_uses_incoming_salt() {
+         let old_salt = "old-salt";
+         let h1 = compute_permanent_password_h1("p@ssw0rd", old_salt);
+-        let mut cfg = Config::default();
+-        cfg.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
+-        cfg.salt = old_salt.to_owned();
++        let mut cfg = Config {
++            password: encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap(),
++            salt: old_salt.to_owned(),
++            ..Default::default()
++        };
+ 
+         assert!(
+             Config::apply_permanent_password_storage_for_sync(&mut cfg, "", "new-salt").unwrap()
+@@ -3786,7 +3813,7 @@ mod tests {
+         res.insert("d".to_owned(), "c".to_string());
+         res.insert("c".to_owned(), "a".to_string());
+         Config::purify_options(&mut res);
+-        assert!(res.len() == 0);
++        assert!(res.is_empty());
+         res.insert("b".to_owned(), "c".to_string());
+         res.insert("d".to_owned(), "c".to_string());
+         res.insert("c".to_owned(), "a".to_string());
+@@ -3985,15 +4012,15 @@ mod tests {
+     fn test_store_load() {
+         let peerconfig_id = "123456789";
+         let cfg: PeerConfig = Default::default();
+-        cfg.store(&peerconfig_id);
+-        assert_eq!(PeerConfig::load(&peerconfig_id), cfg);
++        cfg.store(peerconfig_id);
++        assert_eq!(PeerConfig::load(peerconfig_id), cfg);
+ 
+         #[cfg(not(windows))]
+         {
+             use std::os::unix::fs::PermissionsExt;
+             assert_eq!(
+                 // ignore file type information by masking with 0o777 (see https://stackoverflow.com/a/50045872)
+-                fs::metadata(PeerConfig::path(&peerconfig_id))
++                fs::metadata(PeerConfig::path(peerconfig_id))
+                     .expect("reading metadata failed")
+                     .permissions()
+                     .mode()
+diff --git a/src/fingerprint.rs b/src/fingerprint.rs
+index 2d8985e..d41ba49 100644
+--- a/src/fingerprint.rs
++++ b/src/fingerprint.rs
+@@ -74,11 +74,11 @@ fn finalize_block(input: &[u8; 16], key: &[u8; 16]) -> [u8; 16] {
+ 
+     add_round_key(&mut state, &round_keys[0]);
+ 
+-    for round in 1..10 {
++    for round_key in round_keys.iter().take(10).skip(1) {
+         sub_bytes(&mut state);
+         shift_rows(&mut state);
+         mix_columns(&mut state);
+-        add_round_key(&mut state, &round_keys[round]);
++        add_round_key(&mut state, round_key);
+     }
+ 
+     sub_bytes(&mut state);
+@@ -156,8 +156,8 @@ fn get_system_entropy() -> [u8; 16] {
+         .duration_since(std::time::UNIX_EPOCH)
+         .unwrap_or_default()
+         .as_nanos();
+-    for i in 0..8 {
+-        entropy[i] = ((timestamp >> (32 - i)) & 0xFF) as u8;
++    for (i, value) in entropy.iter_mut().take(8).enumerate() {
++        *value = ((timestamp >> (32 - i)) & 0xFF) as u8;
+     }
+     entropy
+ }
+@@ -233,7 +233,7 @@ impl FingerprintingInfo {
+                         .ok()
+                         .and_then(|mac| mac)
+                         .map(|mac| mac.to_string())
+-                        .unwrap_or_else(|| "".to_string());
++                        .unwrap_or_default();
+                 }
+                 addr = addr.replace(":", "");
+                 format!("{:0<16}", addr)
+diff --git a/src/fs.rs b/src/fs.rs
+index 3dcc1c6..c72cb76 100644
+--- a/src/fs.rs
++++ b/src/fs.rs
+@@ -217,19 +217,16 @@ fn read_empty_dirs_recursive(
+             dirs.push(fd);
+         } else {
+             for entry in fd.entries.iter() {
+-                match entry.entry_type.enum_value() {
+-                    Ok(FileType::Dir) => {
+-                        if let Ok(mut tmp) = read_empty_dirs_recursive(
+-                            &path.join(&entry.name),
+-                            &prefix.join(&entry.name),
+-                            include_hidden,
+-                        ) {
+-                            for entry in tmp.drain(0..) {
+-                                dirs.push(entry);
+-                            }
++                if let Ok(FileType::Dir) = entry.entry_type.enum_value() {
++                    if let Ok(mut tmp) = read_empty_dirs_recursive(
++                        &path.join(&entry.name),
++                        &prefix.join(&entry.name),
++                        include_hidden,
++                    ) {
++                        for entry in tmp.drain(0..) {
++                            dirs.push(entry);
+                         }
+                     }
+-                    _ => {}
+                 }
+             }
+         }
+@@ -250,7 +247,7 @@ pub fn get_empty_dirs_recursive(
+ 
+ #[inline]
+ pub fn is_file_exists(file_path: &str) -> bool {
+-    return Path::new(file_path).exists();
++    Path::new(file_path).exists()
+ }
+ 
+ #[inline]
+@@ -259,18 +256,13 @@ pub fn can_enable_overwrite_detection(version: i64) -> bool {
+ }
+ 
+ #[repr(i32)]
+-#[derive(Copy, Clone, Serialize, Debug, PartialEq)]
++#[derive(Copy, Clone, Serialize, Debug, PartialEq, Default)]
+ pub enum JobType {
++    #[default]
+     Generic = 0,
+     Printer = 1,
+ }
+ 
+-impl Default for JobType {
+-    fn default() -> Self {
+-        JobType::Generic
+-    }
+-}
+-
+ impl From<JobType> for file_transfer_send_request::FileType {
+     fn from(t: JobType) -> Self {
+         match t {
+@@ -290,9 +282,9 @@ impl From<i32> for JobType {
+     }
+ }
+ 
+-impl Into<i32> for JobType {
+-    fn into(self) -> i32 {
+-        self as i32
++impl From<JobType> for i32 {
++    fn from(val: JobType) -> Self {
++        val as i32
+     }
+ }
+ 
+@@ -333,7 +325,7 @@ impl serde::Serialize for DataSource {
+ impl Display for DataSource {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+-            DataSource::FilePath(p) => write!(f, "File: {}", p.to_string_lossy().to_string()),
++            DataSource::FilePath(p) => write!(f, "File: {}", p.to_string_lossy()),
+             DataSource::MemoryCursor(_) => write!(f, "Bytes"),
+         }
+     }
+@@ -490,7 +482,7 @@ pub fn validate_file_name_no_traversal(name: &str) -> ResultType<()> {
+ fn validate_transfer_file_names(files: &[FileEntry]) -> ResultType<()> {
+     // Single-file transfer may use an empty relative name, because
+     // the destination file path is carried by transfer metadata.
+-    if files.len() == 1 && files.first().map_or(false, |f| f.name.is_empty()) {
++    if files.len() == 1 && files.first().is_some_and(|f| f.name.is_empty()) {
+         return Ok(());
+     }
+     for file in files {
+@@ -513,11 +505,11 @@ fn validate_fs_path_argument(path: &str, arg_name: &str) -> ResultType<()> {
+     Ok(())
+ }
+ 
+-fn validate_no_symlink_components(base: &PathBuf, name: &str) -> ResultType<()> {
++fn validate_no_symlink_components(base: &Path, name: &str) -> ResultType<()> {
+     if name.is_empty() {
+         return Ok(());
+     }
+-    let mut current = base.clone();
++    let mut current = base.to_path_buf();
+     for component in Path::new(name).components() {
+         match component {
+             std::path::Component::Normal(seg) => {
+@@ -554,7 +546,7 @@ fn validate_no_symlink_components(base: &PathBuf, name: &str) -> ResultType<()>
+ }
+ 
+ /// Validate an untrusted relative file name and existing path components before joining it.
+-pub fn join_validated_path(base: &PathBuf, name: &str) -> ResultType<PathBuf> {
++pub fn join_validated_path(base: &Path, name: &str) -> ResultType<PathBuf> {
+     validate_file_name_no_traversal(name)?;
+     validate_no_symlink_components(base, name)?;
+     Ok(TransferJob::join(base, name))
+@@ -593,6 +585,8 @@ impl TransferJob {
+         Ok(self)
+     }
+ 
++    // Preserve the upstream transfer API; each argument is a distinct wire option.
++    #[allow(clippy::too_many_arguments)]
+     pub fn new_read(
+         id: i32,
+         r#type: JobType,
+@@ -687,7 +681,7 @@ impl TransferJob {
+         self.file_num
+     }
+ 
+-    fn resolve_entry_path(&self, base: &PathBuf, name: &str) -> Option<PathBuf> {
++    fn resolve_entry_path(&self, base: &Path, name: &str) -> Option<PathBuf> {
+         if self.r#type == JobType::Generic {
+             match join_validated_path(base, name) {
+                 Ok(path) => Some(path),
+@@ -829,9 +823,9 @@ impl TransferJob {
+     }
+ 
+     #[inline]
+-    pub fn join(p: &PathBuf, name: &str) -> PathBuf {
++    pub fn join(p: &Path, name: &str) -> PathBuf {
+         if name.is_empty() {
+-            p.clone()
++            p.to_path_buf()
+         } else {
+             p.join(name)
+         }
+@@ -927,10 +921,11 @@ impl TransferJob {
+     }
+ 
+     pub async fn read(&mut self) -> ResultType<Option<FileTransferBlock>> {
+-        if self.r#type == JobType::Generic {
+-            if self.enable_overwrite_detection && !self.file_confirmed() {
+-                return Ok(None);
+-            }
++        if self.r#type == JobType::Generic
++            && self.enable_overwrite_detection
++            && !self.file_confirmed()
++        {
++            return Ok(None);
+         }
+ 
+         let file_num = self.file_num as usize;
+@@ -1118,6 +1113,7 @@ impl TransferJob {
+                 // but this reopen remains TOCTOU-prone by design for now.
+                 match OpenOptions::new()
+                     .create(true)
++                    .truncate(false)
+                     .write(true)
+                     .open(&download_path)
+                     .await
+@@ -1319,7 +1315,7 @@ pub fn get_job_immutable(id: i32, jobs: &[TransferJob]) -> Option<&TransferJob>
+     jobs.iter().find(|x| x.id() == id)
+ }
+ 
+-async fn init_jobs(jobs: &mut Vec<TransferJob>, stream: &mut crate::Stream) -> ResultType<()> {
++async fn init_jobs(jobs: &mut [TransferJob], stream: &mut crate::Stream) -> ResultType<()> {
+     for job in jobs.iter_mut() {
+         if job.is_last_job {
+             continue;
+@@ -1424,8 +1420,8 @@ pub fn rename_file(path: &str, new_name: &str) -> ResultType<()> {
+         let dir = path
+             .parent()
+             .ok_or(anyhow!("Parent directoy of {path:?} not exists"))?;
+-        let new_path = dir.join(&new_name);
+-        std::fs::rename(&path, &new_path)?;
++        let new_path = dir.join(new_name);
++        std::fs::rename(path, &new_path)?;
+         Ok(())
+     } else {
+         bail!("{path:?} not exists");
+diff --git a/src/lib.rs b/src/lib.rs
+index 2b35642..ed09b24 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -58,9 +58,9 @@ pub use uuid;
+ pub mod fingerprint;
+ pub use flexi_logger;
+ pub mod stream;
+-pub mod websocket;
+ #[cfg(feature = "webrtc")]
+ pub mod webrtc;
++pub mod websocket;
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ pub use rustls_platform_verifier;
+ pub use stream::Stream;
+@@ -68,9 +68,9 @@ pub use whoami;
+ pub mod tls;
+ pub mod verifier;
+ pub use async_recursion;
++pub use libloading;
+ #[cfg(target_os = "linux")]
+ pub use users;
+-pub use libloading;
+ #[cfg(target_os = "linux")]
+ pub use x11;
+ 
+@@ -122,7 +122,6 @@ pub type ResultType<F, E = anyhow::Error> = anyhow::Result<F, E>;
+ 
+ /// Certain router and firewalls scan the packet and if they
+ /// find an IP address belonging to their pool that they use to do the NAT mapping/translation, so here we mangle the ip address
+-
+ pub struct AddrMangle();
+ 
+ #[inline]
+@@ -189,7 +188,7 @@ impl AddrMangle {
+         let mut padded = [0u8; 16];
+         padded[..bytes.len()].copy_from_slice(bytes);
+         let number = u128::from_le_bytes(padded);
+-        let tm = (number >> 17) & (u32::max_value() as u128);
++        let tm = (number >> 17) & (u32::MAX as u128);
+         let ip = (((number >> 49) - tm) as u32).to_le_bytes();
+         let port = (number & 0xFFFFFF) - (tm & 0xFFFF);
+         SocketAddr::V4(SocketAddrV4::new(
+@@ -229,7 +228,7 @@ pub fn gen_version() {
+     println!("cargo:rerun-if-changed=Cargo.toml");
+     use std::io::prelude::*;
+     let mut file = File::create("./src/version.rs").unwrap();
+-    for line in read_lines("Cargo.toml").unwrap().flatten() {
++    for line in read_lines("Cargo.toml").unwrap().map_while(Result::ok) {
+         let ab: Vec<&str> = line.split('=').map(|x| x.trim()).collect();
+         if ab.len() == 2 && ab[0] == "version" {
+             file.write_all(format!("pub const VERSION: &str = {};\n", ab[1]).as_bytes())
+@@ -432,7 +431,10 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+         #[cfg(debug_assertions)]
+         {
+             use env_logger::*;
+-            init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn"));
++            init_from_env(Env::default().filter_or(
++                DEFAULT_FILTER_ENV,
++                "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
++            ));
+         }
+         #[cfg(not(debug_assertions))]
+         {
+@@ -447,7 +449,9 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+                 path.push(_name);
+             }
+             use flexi_logger::*;
+-            if let Ok(x) = Logger::try_with_env_or_str("debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn") {
++            if let Ok(x) = Logger::try_with_env_or_str(
++                "debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
++            ) {
+                 logger_holder = x
+                     .log_to_file(FileSpec::default().directory(path))
+                     .write_mode(if _is_async {
+diff --git a/src/password_security.rs b/src/password_security.rs
+index 3f5f324..e84e197 100644
+--- a/src/password_security.rs
++++ b/src/password_security.rs
+@@ -136,15 +136,13 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
+ // note: s.len() return length in bytes, s.chars().count() return char count
+ //       &[..2] return the left 2 bytes, s.chars().take(2) return the left 2 chars
+ pub fn decrypt_str_or_original(s: &str, current_version: &str) -> (String, bool, bool) {
+-    if s.len() > VERSION_LEN {
+-        if s.starts_with("00") {
+-            if let Ok(v) = decrypt(s[VERSION_LEN..].as_bytes()) {
+-                return (
+-                    String::from_utf8_lossy(&v).to_string(),
+-                    true,
+-                    "00" != current_version,
+-                );
+-            }
++    if s.len() > VERSION_LEN && s.starts_with("00") {
++        if let Ok(v) = decrypt(&s.as_bytes()[VERSION_LEN..]) {
++            return (
++                String::from_utf8_lossy(&v).to_string(),
++                true,
++                "00" != current_version,
++            );
+         }
+     }
+ 
+@@ -195,7 +193,9 @@ pub fn decrypt_vec_or_original(v: &[u8], current_version: &str) -> (Vec<u8>, boo
+ 
+ fn encrypt(v: &[u8]) -> Result<String, ()> {
+     if !v.is_empty() {
+-        symmetric_crypt(v, true).map(|v| base64::encode(v, base64::Variant::Original))
++        symmetric_crypt(v, true)
++            .map(|v| base64::encode(v, base64::Variant::Original))
++            .map_err(|_| ())
+     } else {
+         Err(())
+     }
+@@ -203,13 +203,22 @@ fn encrypt(v: &[u8]) -> Result<String, ()> {
+ 
+ fn decrypt(v: &[u8]) -> Result<Vec<u8>, ()> {
+     if !v.is_empty() {
+-        base64::decode(v, base64::Variant::Original).and_then(|v| symmetric_crypt(&v, false))
++        base64::decode(v, base64::Variant::Original)
++            .and_then(|v| symmetric_crypt(&v, false).map_err(|_| ()))
+     } else {
+         Err(())
+     }
+ }
+ 
+-pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
++#[derive(Debug, thiserror::Error)]
++#[error("symmetric encryption or authentication failed")]
++pub struct SymmetricCryptError;
++
++pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, SymmetricCryptError> {
++    symmetric_crypt_inner(data, encrypt).map_err(|_| SymmetricCryptError)
++}
++
++fn symmetric_crypt_inner(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
+     use sodiumoxide::crypto::secretbox;
+     use std::convert::TryInto;
+ 
+diff --git a/src/platform/linux.rs b/src/platform/linux.rs
+index d4b29bb..32d7f34 100644
+--- a/src/platform/linux.rs
++++ b/src/platform/linux.rs
+@@ -190,7 +190,7 @@ pub fn get_display_server_of_session(session: &str) -> String {
+ #[inline]
+ fn line_values(indices: &[usize], line: &str) -> Vec<String> {
+     indices
+-        .into_iter()
++        .iter()
+         .map(|idx| line.split_whitespace().nth(*idx).unwrap_or("").to_owned())
+         .collect::<Vec<String>>()
+ }
+@@ -219,12 +219,11 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
+             if line.contains("seat0") {
+                 if let Some(sid) = line.split_whitespace().next() {
+                     if is_active(sid) {
+-                        if ignore_gdm_wayland {
+-                            if is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
+-                                && get_display_server_of_session(sid) == DISPLAY_SERVER_WAYLAND
+-                            {
+-                                continue;
+-                            }
++                        if ignore_gdm_wayland
++                            && is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
++                            && get_display_server_of_session(sid) == DISPLAY_SERVER_WAYLAND
++                        {
++                            continue;
+                         }
+                         return line_values(indices, line);
+                     }
+@@ -240,12 +239,11 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
+             if let Some(sid) = line.split_whitespace().next() {
+                 if is_active(sid) {
+                     let d = get_display_server_of_session(sid);
+-                    if ignore_gdm_wayland {
+-                        if is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
+-                            && d == DISPLAY_SERVER_WAYLAND
+-                        {
+-                            continue;
+-                        }
++                    if ignore_gdm_wayland
++                        && is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
++                        && d == DISPLAY_SERVER_WAYLAND
++                    {
++                        continue;
+                     }
+                     if d == "tty" || d == "unspecified" {
+                         continue;
+@@ -299,8 +297,8 @@ pub fn run_cmds_trim_newline(cmds: &str) -> ResultType<String> {
+         .args(vec!["-c", cmds])
+         .output()?;
+     let out = String::from_utf8_lossy(&output.stdout);
+-    Ok(if out.ends_with('\n') {
+-        out[..out.len() - 1].to_string()
++    Ok(if let Some(stripped) = out.strip_suffix('\n') {
++        stripped.to_string()
+     } else {
+         out.to_string()
+     })
+diff --git a/src/proxy.rs b/src/proxy.rs
+index d3b8a76..7056c20 100644
+--- a/src/proxy.rs
++++ b/src/proxy.rs
+@@ -76,7 +76,7 @@ impl IntoUrl for Url {
+     }
+ }
+ 
+-impl<'a> IntoUrl for &'a str {
++impl IntoUrl for &str {
+     fn into_url(self) -> Result<Url, ProxyError> {
+         Url::parse(self)
+             .map_err(ProxyError::UrlParseScheme)?
+@@ -88,7 +88,7 @@ impl<'a> IntoUrl for &'a str {
+     }
+ }
+ 
+-impl<'a> IntoUrl for &'a String {
++impl IntoUrl for &String {
+     fn into_url(self) -> Result<Url, ProxyError> {
+         (&**self).into_url()
+     }
+@@ -98,7 +98,7 @@ impl<'a> IntoUrl for &'a String {
+     }
+ }
+ 
+-impl<'a> IntoUrl for String {
++impl IntoUrl for String {
+     fn into_url(self) -> Result<Url, ProxyError> {
+         (&*self).into_url()
+     }
+@@ -229,7 +229,7 @@ impl ProxyScheme {
+         match self {
+             ProxyScheme::Http { host, .. } => self.resolve_host(host, 80).await,
+             ProxyScheme::Https { host, .. } => self.resolve_host(host, 443).await,
+-            ProxyScheme::Socks5 { addr, .. } => Ok(addr.clone()),
++            ProxyScheme::Socks5 { addr, .. } => Ok(*addr),
+         }
+     }
+ 
+@@ -323,10 +323,7 @@ impl Proxy {
+     }
+ 
+     pub fn is_http_or_https(&self) -> bool {
+-        return match self.intercept {
+-            ProxyScheme::Socks5 { .. } => false,
+-            _ => true,
+-        };
++        !matches!(self.intercept, ProxyScheme::Socks5 { .. })
+     }
+ 
+     pub fn from_conf(conf: &Socks5Server, ms_timeout: Option<u64>) -> Result<Self, ProxyError> {
+@@ -393,7 +390,7 @@ impl Proxy {
+         let stream = self.new_stream(local, proxy).await?;
+         let addr = stream.local_addr()?;
+ 
+-        return match self.intercept {
++        match self.intercept {
+             ProxyScheme::Http { .. } => {
+                 log::trace!("Connect to remote http proxy server: {}", proxy);
+                 let stream =
+@@ -474,7 +471,7 @@ impl Proxy {
+                     0,
+                 ))
+             }
+-        };
++        }
+     }
+ 
+     async fn https_connect_nativetls_wrap_danger<'a>(
+@@ -490,7 +487,7 @@ impl Proxy {
+             self.ms_timeout,
+             self.https_connect_nativetls(
+                 stream,
+-                &target_addr,
++                target_addr,
+                 danger_accept_invalid_cert.unwrap_or(false),
+             ),
+         )
+@@ -523,6 +520,8 @@ impl Proxy {
+         self.http_connect(stream, target_addr).await
+     }
+ 
++    // Preserve the upstream TLS retry interface and its separate consent flags.
++    #[allow(clippy::too_many_arguments)]
+     #[async_recursion]
+     async fn https_connect_rustls_wrap_danger<'a>(
+         &self,
+@@ -548,7 +547,7 @@ impl Proxy {
+         {
+             Ok(s) => {
+                 upsert_tls_cache(
+-                    &url,
++                    url,
+                     TlsType::Rustls,
+                     danger_accept_invalid_cert.unwrap_or(false),
+                 );
+@@ -573,7 +572,7 @@ impl Proxy {
+                         "Falling back to rustls-tls (accept invalid cert) for HTTPS proxy server."
+                     );
+                     self.https_connect_rustls_wrap_danger(
+-                        &url,
++                        url,
+                         local,
+                         proxy,
+                         None,
+@@ -586,10 +585,10 @@ impl Proxy {
+                 } else if !is_tls_type_cached {
+                     log::warn!("Falling back to native-tls for HTTPS proxy server.");
+                     self.https_connect_nativetls_wrap_danger(
+-                        &url,
++                        url,
+                         local,
+                         proxy,
+-                        &target_addr,
++                        target_addr,
+                         origin_danger_accept_invalid_cert,
+                     )
+                     .await?
+@@ -703,7 +702,7 @@ where
+     let response_bytes = response_string.into_bytes();
+     response.parse(&response_bytes)?;
+ 
+-    return match response.code {
++    match response.code {
+         Some(code) => {
+             if code == 200 {
+                 Ok(())
+@@ -712,5 +711,5 @@ where
+             }
+         }
+         None => Err(ProxyError::NoHttpCode),
+-    };
++    }
+ }
+diff --git a/src/stream.rs b/src/stream.rs
+index a8e6b6c..d2be1bc 100644
+--- a/src/stream.rs
++++ b/src/stream.rs
+@@ -1,11 +1,13 @@
+-use crate::{config, tcp, websocket, ResultType};
+ #[cfg(feature = "webrtc")]
+ use crate::webrtc;
++use crate::{config, tcp, websocket, ResultType};
+ use sodiumoxide::crypto::secretbox::Key;
+ use std::net::SocketAddr;
+ use tokio::net::TcpStream;
+ 
+ // support Websocket and tcp.
++// Preserve the exported enum constructors; boxing would break upstream callers.
++#[allow(clippy::large_enum_variant)]
+ pub enum Stream {
+     #[cfg(feature = "webrtc")]
+     WebRTC(webrtc::WebRTCStream),
+diff --git a/src/tcp.rs b/src/tcp.rs
+index 2296edb..869cebb 100644
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -1,4 +1,4 @@
+-use crate::{bail, bytes_codec::BytesCodec, ResultType, config::Socks5Server, proxy::Proxy};
++use crate::{bail, bytes_codec::BytesCodec, config::Socks5Server, proxy::Proxy, ResultType};
+ use anyhow::Context as AnyhowCtx;
+ use bytes::{BufMut, Bytes, BytesMut};
+ use futures::{SinkExt, StreamExt};
+@@ -8,7 +8,7 @@ use sodiumoxide::crypto::{
+     secretbox::{self, Key, Nonce},
+ };
+ use std::{
+-    io::{self, Error, ErrorKind},
++    io::{self, Error},
+     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+     ops::{Deref, DerefMut},
+     pin::Pin,
+@@ -62,7 +62,10 @@ impl DerefMut for DynTcpStream {
+     }
+ }
+ 
+-pub(crate) fn new_socket(addr: std::net::SocketAddr, reuse: bool) -> Result<TcpSocket, std::io::Error> {
++pub(crate) fn new_socket(
++    addr: std::net::SocketAddr,
++    reuse: bool,
++) -> Result<TcpSocket, std::io::Error> {
+     let socket = match addr {
+         std::net::SocketAddr::V4(..) => TcpSocket::new_v4()?,
+         std::net::SocketAddr::V6(..) => TcpSocket::new_v6()?,
+@@ -189,11 +192,7 @@ impl FramedStream {
+ 
+     #[inline]
+     pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {
+-        if let Ok(res) = super::timeout(ms, self.next()).await {
+-            res
+-        } else {
+-            None
+-        }
++        super::timeout(ms, self.next()).await.unwrap_or_default()
+     }
+ 
+     pub fn set_key(&mut self, key: Key) {
+@@ -310,14 +309,14 @@ impl Encrypt {
+                 bytes.put_slice(&res);
+                 Ok(())
+             }
+-            Err(()) => Err(Error::new(ErrorKind::Other, "decryption error")),
++            Err(()) => Err(Error::other("decryption error")),
+         }
+     }
+ 
+     pub fn enc(&mut self, data: &[u8]) -> Vec<u8> {
+         self.1 += 1;
+         let nonce = FramedStream::get_nonce(self.1);
+-        secretbox::seal(&data, &nonce, &self.0)
++        secretbox::seal(data, &nonce, &self.0)
+     }
+ 
+     pub fn decode(
+@@ -332,7 +331,7 @@ impl Encrypt {
+         let mut pk_ = [0u8; box_::PUBLICKEYBYTES];
+         pk_[..].copy_from_slice(their_pk_b);
+         let their_pk_b = box_::PublicKey(pk_);
+-        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, &our_sk_b)
++        let symmetric_key = box_::open(symmetric_data, &nonce, &their_pk_b, our_sk_b)
+             .map_err(|_| anyhow::anyhow!("Handshake failed: box decryption failure"))?;
+         if symmetric_key.len() != secretbox::KEYBYTES {
+             anyhow::bail!("Handshake failed: invalid secret key length from peer");
+diff --git a/src/udp.rs b/src/udp.rs
+index fbdf332..2a6f319 100644
+--- a/src/udp.rs
++++ b/src/udp.rs
+@@ -65,7 +65,7 @@ impl FramedSocket {
+         )))
+     }
+ 
+-    pub async fn new_proxy<'a, 't, P: ToProxyAddrs, T: ToSocketAddrs>(
++    pub async fn new_proxy<'a, P: ToProxyAddrs, T: ToSocketAddrs>(
+         proxy: P,
+         local: T,
+         username: &'a str,
+@@ -151,13 +151,9 @@ impl FramedSocket {
+         &mut self,
+         ms: u64,
+     ) -> Option<ResultType<(BytesMut, TargetAddr<'static>)>> {
+-        if let Ok(res) =
+-            tokio::time::timeout(std::time::Duration::from_millis(ms), self.next()).await
+-        {
+-            res
+-        } else {
+-            None
+-        }
++        tokio::time::timeout(std::time::Duration::from_millis(ms), self.next())
++            .await
++            .unwrap_or_default()
+     }
+ 
+     pub fn local_addr(&self) -> Option<SocketAddr> {
+diff --git a/src/webrtc.rs b/src/webrtc.rs
+index 8f3c410..ddf3202 100644
+--- a/src/webrtc.rs
++++ b/src/webrtc.rs
+@@ -122,7 +122,7 @@ impl WebRTCStream {
+         if sdp_json.is_empty() {
+             return Ok("".to_string());
+         }
+-        let sdp = serde_json::from_str::<RTCSessionDescription>(&sdp_json)?;
++        let sdp = serde_json::from_str::<RTCSessionDescription>(sdp_json)?;
+         Self::get_key_for_sdp(&sdp)
+     }
+ 
+@@ -156,7 +156,6 @@ impl WebRTCStream {
+                         )],
+                         username: u.username().to_string(),
+                         credential: u.password().unwrap_or_default().to_string(),
+-                        ..Default::default()
+                     })
+                 } else {
+                     None
+@@ -480,18 +479,15 @@ impl WebRTCStream {
+             Ok(n) => n,
+             Err(err) => {
+                 self.pc.close().await.ok();
+-                return Some(Err(Error::new(
+-                    ErrorKind::Other,
+-                    format!("data channel read error: {}", err),
+-                )));
++                return Some(Err(Error::other(format!(
++                    "data channel read error: {}",
++                    err
++                ))));
+             }
+         };
+         if n == 0 {
+             self.pc.close().await.ok();
+-            return Some(Err(Error::new(
+-                ErrorKind::Other,
+-                "data channel read exited with 0 bytes",
+-            )));
++            return Some(Err(Error::other("data channel read exited with 0 bytes")));
+         }
+         buffer.truncate(n);
+         Some(Ok(buffer))
+@@ -499,10 +495,9 @@ impl WebRTCStream {
+ 
+     #[inline]
+     pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {
+-        match timeout(Duration::from_millis(ms), self.next()).await {
+-            Ok(res) => res,
+-            Err(_) => None,
+-        }
++        timeout(Duration::from_millis(ms), self.next())
++            .await
++            .unwrap_or_default()
+     }
+ }
+ 
+@@ -586,10 +581,7 @@ mod tests {
+             "turn:example.com:3478"
+         );
+         assert_eq!(WebRTCStream::get_ice_servers().len(), 2);
+-        config::Config::set_option(
+-            "ice-servers".to_string(),
+-            "".to_string(),
+-        );
++        config::Config::set_option("ice-servers".to_string(), "".to_string());
+     }
+ 
+     #[test]
+diff --git a/src/websocket.rs b/src/websocket.rs
+index 7bf2108..22caf25 100644
+--- a/src/websocket.rs
++++ b/src/websocket.rs
+@@ -13,12 +13,7 @@ use anyhow::bail;
+ use async_recursion::async_recursion;
+ use bytes::{Bytes, BytesMut};
+ use futures::{SinkExt, StreamExt};
+-use std::{
+-    io::{Error, ErrorKind},
+-    net::SocketAddr,
+-    sync::Arc,
+-    time::Duration,
+-};
++use std::{io::Error, net::SocketAddr, sync::Arc, time::Duration};
+ use tokio::{net::TcpStream, time::timeout};
+ use tokio_native_tls::native_tls::TlsConnector;
+ use tokio_tungstenite::{
+@@ -74,7 +69,7 @@ impl WsFramedStream {
+         let tls_type = get_cached_tls_type(url);
+         let is_tls_type_cached = tls_type.is_some();
+         let tls_type = tls_type.unwrap_or(TlsType::Rustls);
+-        let danger_accept_invalid_cert = get_cached_tls_accept_invalid_cert(&url);
++        let danger_accept_invalid_cert = get_cached_tls_accept_invalid_cert(url);
+         Self::try_connect(
+             url,
+             ms_timeout,
+@@ -97,9 +92,7 @@ impl WsFramedStream {
+     ) -> ResultType<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+         let ws_config = None;
+         let disable_nagle = false;
+-        let request = url
+-            .into_client_request()
+-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
++        let request = url.into_client_request().map_err(Error::other)?;
+         let connector =
+             Self::get_connector(&tls_type, danger_accept_invalid_cert.unwrap_or(false))?;
+         match timeout(
+@@ -193,7 +186,7 @@ impl WsFramedStream {
+             MaybeTlsStream::Plain(tcp) => tcp.peer_addr()?,
+             MaybeTlsStream::NativeTls(tls) => tls.get_ref().get_ref().get_ref().peer_addr()?,
+             MaybeTlsStream::Rustls(tls) => tls.get_ref().0.peer_addr()?,
+-            _ => return Err(Error::new(ErrorKind::Other, "Unsupported stream type").into()),
++            _ => return Err(Error::other("Unsupported stream type").into()),
+         };
+ 
+         let ws = Self {
+@@ -280,10 +273,10 @@ impl WsFramedStream {
+                 Ok(msg) => msg,
+                 Err(e) => {
+                     log::error!("{}", e);
+-                    return Some(Err(Error::new(
+-                        ErrorKind::Other,
+-                        format!("WebSocket protocol error: {}", e),
+-                    )));
++                    return Some(Err(Error::other(format!(
++                        "WebSocket protocol error: {}",
++                        e
++                    ))));
+                 }
+             };
+ 
+@@ -315,10 +308,9 @@ impl WsFramedStream {
+ 
+     #[inline]
+     pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {
+-        match timeout(Duration::from_millis(ms), self.next()).await {
+-            Ok(res) => res,
+-            Err(_) => None,
+-        }
++        timeout(Duration::from_millis(ms), self.next())
++            .await
++            .unwrap_or_default()
+     }
+ }
+ 

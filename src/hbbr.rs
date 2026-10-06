@@ -1,5 +1,5 @@
 use clap::App;
-mod common;
+use hbbs::common;
 mod relay_server;
 use flexi_logger::*;
 use hbb_common::{config::RELAY_PORT, ResultType};

@@ -10,3 +10,7 @@ src/version.rs
 db_v2.sqlite3
 test.*
 .idea
+
+*.cdx.json
+
+__pycache__/

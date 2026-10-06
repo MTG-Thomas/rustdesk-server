@@ -10,7 +10,7 @@ fn deeply_nested_unknown_groups_are_rejected_without_aborting() {
     if std::env::var_os(CHILD_ENV).is_some() {
         const DEPTH: usize = 300_000;
         let mut input = vec![0x0b; DEPTH];
-        input.extend(std::iter::repeat(0x0c).take(DEPTH));
+        input.extend(std::iter::repeat_n(0x0c, DEPTH));
 
         assert!(RendezvousMessage::parse_from_bytes(&input).is_err());
         println!("{CHILD_COMPLETION_SENTINEL}");

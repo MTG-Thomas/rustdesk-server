@@ -3,6 +3,7 @@ on:
   pull_request:
   push:
     branches: [master]
+  merge_group:
   workflow_dispatch:
   workflow_call:
 permissions:
@@ -18,19 +19,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [format, clippy, test, audit]
+        check: [format, clippy, test, audit, coverage, sbom]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Exercise patch provenance and dirty-work protection
+        run: python3 -m unittest discover -s tests -p test_common_patch.py
+      - name: Apply the verified downstream common patch
+        run: python3 scripts/apply_common_patch.py
       - name: Install native build prerequisites
-        if: matrix.check == 'clippy' || matrix.check == 'test'
+        if: matrix.check != 'sbom'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
       - name: Install the release Rust toolchain
         run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - name: Generate version source through the native build
+        if: matrix.check == 'format'
+        run: cargo +1.90.0 check --locked --workspace
       - name: Check formatting without rewriting source
         if: matrix.check == 'format'
         run: cargo +1.90.0 fmt --all -- --check
@@ -46,10 +54,38 @@ jobs:
         run: cargo +1.90.0 test --locked --workspace --all-features
       - name: Install the pinned RustSec auditor
         if: matrix.check == 'audit'
-        run: cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
-      - name: Audit the committed dependency lockfile
+        run: |
+          cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
+          cargo +1.90.0 install cargo-auditable --version 0.7.7 --locked
+      - name: Audit complete dependency metadata in the server binaries
         if: matrix.check == 'audit'
-        run: cargo +1.90.0 audit --file Cargo.lock
+        run: |
+          cargo +1.90.0 auditable build --locked --bins
+          python3 scripts/check_auditable.py target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
+          cargo +1.90.0 audit --file Cargo.lock
+          cargo +1.90.0 audit bin target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
+      - name: Measure workspace coverage
+        if: matrix.check == 'coverage'
+        run: |
+          rustup component add llvm-tools-preview --toolchain 1.90.0
+          cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
+          mkdir -p artifacts
+          cargo +1.90.0 llvm-cov --locked --workspace --all-features --lcov --output-path artifacts/lcov.info
+      - name: Generate the complete resolved dependency SBOM
+        if: matrix.check == 'sbom'
+        run: |
+          cargo +1.90.0 install cargo-cyclonedx --version 0.5.9 --locked
+          cargo +1.90.0 cyclonedx --all --all-features --format json --spec-version 1.5
+          mkdir -p artifacts
+          find . -name '*.cdx.json' -not -path './target/*' -exec cp {} artifacts/ \;
+          test -n "$(find artifacts -name '*.cdx.json' -print -quit)"
+      - name: Preserve coverage or dependency evidence
+        if: matrix.check == 'coverage' || matrix.check == 'sbom'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rust-${{ matrix.check }}
+          path: artifacts/
+          if-no-files-found: error
   image:
     name: Quick Support / security and protocol
     runs-on: ubuntu-24.04
@@ -83,12 +119,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [rust, actions]
+        language: [rust, actions, python, javascript-typescript]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Exercise patch provenance and dirty-work protection
+        run: python3 -m unittest discover -s tests -p test_common_patch.py
+      - name: Apply the verified downstream common patch
+        run: python3 scripts/apply_common_patch.py
+      - name: Install Node for the authored UI assets
+        if: matrix.language == 'rust' || matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Build the assets required by Tauri source analysis
+        if: matrix.language == 'rust' || matrix.language == 'javascript-typescript'
+        working-directory: ui/html
+        run: |
+          npm ci
+          npm audit
+          npm run build
       - name: Install Rust analysis prerequisites
         if: matrix.language == 'rust'
         run: |
