@@ -33,7 +33,11 @@ replacement require further evaluation.
 ## Build and verification
 
 `Dockerfile.quick-support` pins Rust 1.90.0/Alpine and the official 1.1.16 S6
-runtime by Linux amd64 digest. Cargo resolves only the existing lockfile. The
+runtime by Linux amd64 digest. The inherited BusyBox is replaced by a static
+musl BusyBox 1.37.0 build: its ash includes upstream fix
+`d417193cf37ca1005830d7e16f5fa7e1d8a44209` (CVE-2022-48174), and the image
+backports the tar output sanitization and wget URL validation patches described
+in `docker/quick-support-busybox/README.md`. Cargo resolves only the existing lockfile. The
 published image retains the upstream license and points back to this repository.
 The Quick Support image workflow builds binaries, runs real protocol tests,
 and publishes to GHCR only after those tests pass. Deployment consumes its
