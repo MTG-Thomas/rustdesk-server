@@ -6,6 +6,9 @@ permissions:
   contents: read
 jobs:
   validate:
+    permissions:
+      contents: read
+      security-events: write
     uses: ./.github/workflows/repo-validation.yml
   build-test-publish:
     needs: validate
