@@ -184,3 +184,50 @@ async fn socks_proxy_preserves_explicit_address_and_rejects_bad_scheme() {
     assert_eq!(proxy.proxy_addrs().await.unwrap(), address);
     assert!(Proxy::new("ftp://127.0.0.1", 1000).is_err());
 }
+
+#[test]
+fn transfer_paths_reject_traversal_and_symlink_escape() {
+    let directory = tempfile::tempdir().unwrap();
+    let base = directory.path();
+    assert_eq!(fs::TransferJob::join(base, ""), base);
+    assert_eq!(
+        fs::join_validated_path(base, "report.txt").unwrap(),
+        base.join("report.txt")
+    );
+    for name in ["../escape", "/absolute", "nested/../../escape"] {
+        assert!(fs::join_validated_path(base, name).is_err());
+    }
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), base.join("link")).unwrap();
+        assert!(fs::join_validated_path(base, "link/report.txt").is_err());
+    }
+    let report = base.join("report.txt");
+    assert!(!fs::is_file_exists(report.to_str().unwrap()));
+    std::fs::write(&report, b"report").unwrap();
+    assert!(fs::is_file_exists(report.to_str().unwrap()));
+}
+
+#[test]
+fn file_transfer_types_and_source_labels_preserve_wire_contracts() {
+    assert_eq!(i32::from(fs::JobType::Generic), 0);
+    assert_eq!(i32::from(fs::JobType::Printer), 1);
+    assert_eq!(i32::from(fs::JobType::from(1)), 1);
+    assert_eq!(i32::from(fs::JobType::from(99)), 0);
+    assert_eq!(
+        fs::DataSource::FilePath("report.txt".into()).to_string(),
+        "File: report.txt"
+    );
+    assert_eq!(
+        fs::DataSource::MemoryCursor(std::io::Cursor::new(vec![])).to_string(),
+        "Bytes"
+    );
+}
+
+#[test]
+fn unset_connection_policy_allows_both_directions_and_tcp_listening() {
+    assert!(!hbb_common::config::is_incoming_only());
+    assert!(!hbb_common::config::is_outgoing_only());
+    assert!(!hbb_common::config::is_disable_tcp_listen());
+}
