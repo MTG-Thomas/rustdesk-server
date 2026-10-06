@@ -1088,7 +1088,7 @@ index fbdf332..2a6f319 100644
  
      pub fn local_addr(&self) -> Option<SocketAddr> {
 diff --git a/src/webrtc.rs b/src/webrtc.rs
-index 8f3c410..ddf3202 100644
+index 8f3c410..9facb21 100644
 --- a/src/webrtc.rs
 +++ b/src/webrtc.rs
 @@ -122,7 +122,7 @@ impl WebRTCStream {
@@ -1108,7 +1108,32 @@ index 8f3c410..ddf3202 100644
                      })
                  } else {
                      None
-@@ -480,18 +479,15 @@ impl WebRTCStream {
+@@ -205,6 +204,15 @@ impl WebRTCStream {
+         remote_endpoint: &str,
+         force_relay: bool,
+         ms_timeout: u64,
++    ) -> ResultType<Self> {
++        Self::new_with_ice_servers(remote_endpoint, force_relay, ms_timeout, None).await
++    }
++
++    async fn new_with_ice_servers(
++        remote_endpoint: &str,
++        force_relay: bool,
++        ms_timeout: u64,
++        ice_servers: Option<Vec<RTCIceServer>>,
+     ) -> ResultType<Self> {
+         log::debug!("New webrtc stream to endpoint: {}", remote_endpoint);
+         let remote_offer = if remote_endpoint.is_empty() {
+@@ -234,7 +242,7 @@ impl WebRTCStream {
+ 
+         // Prepare the configuration, get ICE servers from config
+         let config = RTCConfiguration {
+-            ice_servers: Self::get_ice_servers(),
++            ice_servers: ice_servers.unwrap_or_else(Self::get_ice_servers),
+             ice_transport_policy: if force_relay {
+                 RTCIceTransportPolicy::Relay
+             } else {
+@@ -480,18 +488,15 @@ impl WebRTCStream {
              Ok(n) => n,
              Err(err) => {
                  self.pc.close().await.ok();
@@ -1132,7 +1157,7 @@ index 8f3c410..ddf3202 100644
          }
          buffer.truncate(n);
          Some(Ok(buffer))
-@@ -499,10 +495,9 @@ impl WebRTCStream {
+@@ -499,10 +504,9 @@ impl WebRTCStream {
  
      #[inline]
      pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {
@@ -1146,7 +1171,7 @@ index 8f3c410..ddf3202 100644
      }
  }
  
-@@ -586,10 +581,7 @@ mod tests {
+@@ -586,10 +590,7 @@ mod tests {
              "turn:example.com:3478"
          );
          assert_eq!(WebRTCStream::get_ice_servers().len(), 2);
@@ -1158,6 +1183,17 @@ index 8f3c410..ddf3202 100644
      }
  
      #[test]
+@@ -748,7 +749,9 @@ IHR5cCBzcmZseCByYWRkciAwLjAuMC4wIHJwb3J0IDY0MDA4XHJcbmE9ZW5kLW9mLWNhbmRpZGF0ZXNc
+         );
+ 
+         assert!(
+-            WebRTCStream::new("", false, 10000).await.is_ok(),
++            WebRTCStream::new_with_ice_servers("", false, 10000, Some(Vec::new()))
++                .await
++                .is_ok(),
+             "local webrtc endpoint should ok"
+         );
+ 
 diff --git a/src/websocket.rs b/src/websocket.rs
 index 7bf2108..22caf25 100644
 --- a/src/websocket.rs

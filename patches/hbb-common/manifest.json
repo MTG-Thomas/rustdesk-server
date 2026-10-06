@@ -1,6 +1,6 @@
 {
   "revision": "69cea8dafee147848ae88702029f4bf7df7224c3",
-  "patch_sha256": "cabc52eef392933e7fca64262641c0dc9684c580a3b33d688a5510f27ef704ec",
+  "patch_sha256": "d4c0850ba9b512e46fd0d1e0097532b1c8285862dc829987d91bc2f0ce0596f4",
   "files": {
     "Cargo.toml": {
       "before": "54f297e75dfa0748c7d06d1e251811e369b6f9aa7d566716c150efad2720556f",
@@ -52,7 +52,7 @@
     },
     "src/webrtc.rs": {
       "before": "bb2757beb8d96bb000c331d42f096b3baafa539b0abfe6ad628a57a75b676b20",
-      "after": "c95a9af7996701024ac6c3272b25bb65f4d5f617cb863537c6f864b110cefdb6"
+      "after": "6b6f749ac8d43dd1b9f74a1f1cbc140d0c656814e42d1e2222b99760fd8f24a4"
     },
     "src/websocket.rs": {
       "before": "a5933e80258dbcfc4ff3bfdd041540e90f0c7cf68f454fec0a39b892e92920a4",

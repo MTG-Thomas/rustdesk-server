@@ -49,6 +49,14 @@ A new Sonar project is initialized from original `master` commit
 The maintained branch is separately initialized from
 `5997e8c1f90b1af62e7e6e293d79cdc0b938d9d1` before its PRs are analyzed, so
 its changes are compared with that branch rather than the newer default source.
+Long-lived branch gates also need an explicit new-code definition. Bind each
+branch to the analysis of its original revision above through SonarCloud's
+`api/project_analyses/set_baseline` API (`project`, `branch`, `analysis`). Verify
+the selected analysis revision first, and read back a `manual_baseline` gate period
+at that original analysis date. Do not advance this baseline past unvalidated
+changes to obtain a passing gate. A PR diff can omit patched submodule changes;
+the long-lived branch gate must independently validate their measured coverage.
+
 Existing backlog is report-only; this initialization is not a clean quality-gate
 attestation or a merge/deployment candidate. Candidate scans await their own gate.
 The final admission job fails when required evidence fails, is skipped, or is
