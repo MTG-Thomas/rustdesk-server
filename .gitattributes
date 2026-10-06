@@ -1,1 +1,2 @@
-* text=auto
+# Unified diff context markers and removed upstream whitespace are patch data.
+patches/hbb-common/*.patch -whitespace
