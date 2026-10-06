@@ -1658,6 +1658,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sodiumoxide",
+ "tempfile",
  "sqlx",
  "tokio-tungstenite",
  "tungstenite",
