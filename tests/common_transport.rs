@@ -152,3 +152,25 @@ async fn socks_proxy_preserves_explicit_address_and_rejects_bad_scheme() {
     assert_eq!(proxy.proxy_addrs().await.unwrap(), address);
     assert!(Proxy::new("ftp://127.0.0.1", 1000).is_err());
 }
+
+#[test]
+fn renamed_file_preserves_contents_and_reports_missing_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let original = directory.path().join("original.txt");
+    let renamed = directory.path().join("renamed.txt");
+    std::fs::write(&original, b"transfer payload").unwrap();
+    assert!(fs::is_file_exists(original.to_str().unwrap()));
+    fs::rename_file(original.to_str().unwrap(), "renamed.txt").unwrap();
+    assert!(!fs::is_file_exists(original.to_str().unwrap()));
+    assert!(fs::is_file_exists(renamed.to_str().unwrap()));
+    assert_eq!(std::fs::read(&renamed).unwrap(), b"transfer payload");
+    assert!(fs::rename_file(original.to_str().unwrap(), "missing.txt").is_err());
+    assert_eq!(std::fs::read(&renamed).unwrap(), b"transfer payload");
+}
+
+#[test]
+fn unset_connection_policy_allows_both_directions_and_tcp_listening() {
+    assert!(!hbb_common::config::is_incoming_only());
+    assert!(!hbb_common::config::is_outgoing_only());
+    assert!(!hbb_common::config::is_disable_tcp_listen());
+}

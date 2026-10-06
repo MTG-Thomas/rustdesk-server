@@ -10,6 +10,10 @@ RustDesk source/lockfile and daemon configuration.
 BusyBox 1.37.0 source comes from https://busybox.net/downloads/busybox-1.37.0.tar.bz2,
 verified against the publisher's SHA-256
 `3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4`.
+The exact upstream archive is retained at `docker/vendor/busybox-1.37.0.tar.bz2`
+so builds do not depend on availability of the upstream download service. The
+Docker build verifies its SHA-256 before extraction and patching; source updates
+must retain their upstream origin and independently verified checksum.
 It is compiled statically against musl using the pinned existing Alpine builder.
 The upstream `defconfig`, with `CONFIG_STATIC=y`, supplies the applets used by S6.
 `CONFIG_TC` is disabled: its obsolete CBQ structures were removed from current

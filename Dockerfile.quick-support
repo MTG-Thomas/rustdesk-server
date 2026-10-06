@@ -1,6 +1,7 @@
 FROM rust@sha256:ee9b9f2ebd8741e4ecf1ade08918e492d642c4e625be481bb7b7954b89e9d504 AS busybox-build
 RUN apk add --no-cache build-base linux-headers python3
-ADD --checksum=sha256:3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4 https://busybox.net/downloads/busybox-1.37.0.tar.bz2 /src/busybox-1.37.0.tar.bz2
+COPY docker/vendor/busybox-1.37.0.tar.bz2 /src/busybox-1.37.0.tar.bz2
+RUN echo "3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4  /src/busybox-1.37.0.tar.bz2" | sha256sum -c -
 COPY docker/quick-support-busybox /src/patches
 WORKDIR /src
 RUN tar -xjf busybox-1.37.0.tar.bz2 && cd busybox-1.37.0 && \
