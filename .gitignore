@@ -15,3 +15,7 @@ test.*
 
 # Generated dependency inventories are published as CI artifacts.
 *.cdx.json
+
+# Local scan evidence and scanner state; CI publishes receipts explicitly.
+/artifacts/
+/.scannerwork/

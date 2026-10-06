@@ -25,8 +25,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ matrix.check == 'coverage' && (github.event.pull_request.head.sha || github.sha) || '' }}
       - name: Exercise patch provenance and dirty-work protection
-        run: python3 -m unittest discover -s tests -p test_common_patch.py
+        run: |
+          python3 -m unittest discover -s tests -p test_common_patch.py
+          python3 -m unittest discover -s tests -p test_sonar_evidence.py
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
       - name: Install native build prerequisites
@@ -59,6 +62,8 @@ jobs:
           cargo +1.90.0 install cargo-auditable --version 0.7.7 --locked
       - name: Audit complete dependency metadata in the server binaries
         if: matrix.check == 'audit'
+        env:
+          CARGO_PROFILE_DEV_DEBUG: '0'
         run: |
           cargo +1.90.0 auditable build --locked --bins
           python3 scripts/check_auditable.py target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
@@ -66,11 +71,16 @@ jobs:
           cargo +1.90.0 audit bin target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
       - name: Measure workspace coverage
         if: matrix.check == 'coverage'
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
         run: |
           rustup component add llvm-tools-preview --toolchain 1.90.0
           cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
           mkdir -p artifacts
-          cargo +1.90.0 llvm-cov --locked --workspace --all-features --lcov --output-path artifacts/lcov.info
+          cargo +1.90.0 llvm-cov --locked --workspace --all-features --remap-path-prefix --ignore-filename-regex '(^|/)(target/|src/version\.rs$)' --lcov --output-path artifacts/lcov.info
+          cargo +1.90.0 clippy --locked --workspace --all-targets --all-features --message-format=json > artifacts/clippy.json
+          python3 scripts/sonar_evidence.py write
       - name: Generate the complete resolved dependency SBOM
         if: matrix.check == 'sbom'
         run: |
@@ -126,7 +136,9 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Exercise patch provenance and dirty-work protection
-        run: python3 -m unittest discover -s tests -p test_common_patch.py
+        run: |
+          python3 -m unittest discover -s tests -p test_common_patch.py
+          python3 -m unittest discover -s tests -p test_sonar_evidence.py
       - name: Apply the verified downstream common patch
         run: python3 scripts/apply_common_patch.py
       - name: Install Node for the authored UI assets
@@ -158,3 +170,46 @@ jobs:
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: /language:${{ matrix.language }}
+
+  sonar:
+    name: Sonar / Rust source and coverage
+    needs: rust
+    if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Apply the verified downstream common patch
+        run: python3 scripts/apply_common_patch.py
+      - name: Download this run's Rust reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-coverage
+          path: artifacts
+      - name: Verify report source and content identities
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: python3 scripts/sonar_evidence.py verify
+      - name: Install Cargo for the Rust analyzer
+        run: rustup toolchain install 1.90.0 --profile minimal
+      - name: Scan authored source with measured coverage
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.scm.revision=${{ github.event.pull_request.head.sha || github.sha }}
+            -Dsonar.qualitygate.wait=true
+      - name: Preserve the submitted compute-task receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sonar-task-receipt
+          path: .scannerwork/report-task.txt
+          if-no-files-found: error
