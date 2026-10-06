@@ -1,13 +1,17 @@
 name: Quick Support server image
 on:
   push:
-    branches: [codex/websocket-registration, codex/quick-support-busybox-fix]
-    paths: [src/**, libs/**, Cargo.lock, Cargo.toml, Dockerfile.quick-support, tests/**, docker/quick-support-busybox/**, .github/workflows/quick-support-image.yml]
+    branches: [codex/websocket-registration]
 permissions:
   contents: read
-  packages: write
 jobs:
+  validate:
+    uses: ./.github/workflows/repo-validation.yml
   build-test-publish:
+    needs: validate
+    permissions:
+      contents: read
+      packages: write
     if: github.repository == 'MTG-Thomas/rustdesk-server'
     runs-on: ubuntu-24.04
     steps:
