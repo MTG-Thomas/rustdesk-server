@@ -1,0 +1,258 @@
+name: Repository validation
+on:
+  pull_request:
+  push:
+    branches: [master]
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: repo-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust:
+    name: Rust / ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [format, clippy, test, audit, coverage, sbom]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          ref: ${{ matrix.check == 'coverage' && (github.event.pull_request.head.sha || github.sha) || '' }}
+      - name: Exercise patch provenance and dirty-work protection
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Apply the verified downstream common patch
+        run: python3 scripts/apply_common_patch.py
+      - name: Install native build prerequisites
+        if: matrix.check != 'sbom'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
+      - name: Install the release Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - name: Generate version source through the native build
+        if: matrix.check == 'format'
+        run: cargo +1.90.0 check --locked --workspace
+      - name: Check formatting without rewriting source
+        if: matrix.check == 'format'
+        run: cargo +1.90.0 fmt --all -- --check
+      - name: Check Rust diagnostics
+        if: matrix.check == 'clippy'
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+        run: cargo +1.90.0 clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Run workspace tests
+        if: matrix.check == 'test'
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+        run: cargo +1.90.0 test --locked --workspace --all-features
+      - name: Install the pinned RustSec auditor
+        if: matrix.check == 'audit'
+        run: |
+          cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
+          cargo +1.90.0 install cargo-auditable --version 0.7.7 --locked
+      - name: Audit complete dependency metadata in the server binaries
+        if: matrix.check == 'audit'
+        env:
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: |
+          cargo +1.90.0 auditable build --locked --bins
+          python3 scripts/check_auditable.py target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
+          cargo +1.90.0 audit --file Cargo.lock
+          cargo +1.90.0 audit bin target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
+      - name: Measure workspace coverage
+        if: matrix.check == 'coverage'
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          rustup component add llvm-tools-preview --toolchain 1.90.0
+          cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
+          mkdir -p artifacts
+          python3 -m venv "$RUNNER_TEMP/python-coverage"
+          "$RUNNER_TEMP/python-coverage/bin/pip" install coverage==7.10.7
+          export PATH="$RUNNER_TEMP/python-coverage/bin:$PATH"
+          coverage run -m unittest discover -s tests -p 'test_*.py'
+          coverage combine
+          coverage xml
+          cargo +1.90.0 llvm-cov --locked --workspace --all-features --remap-path-prefix --ignore-filename-regex '(^|/)(target/|src/version\.rs$)' --lcov --output-path artifacts/lcov.info
+          cargo +1.90.0 clippy --locked --workspace --all-targets --all-features --message-format=json > artifacts/clippy.json
+          python3 scripts/sonar_evidence.py write
+      - name: Generate the complete resolved dependency SBOM
+        if: matrix.check == 'sbom'
+        run: |
+          cargo +1.90.0 install cargo-cyclonedx --version 0.5.9 --locked
+          cargo +1.90.0 cyclonedx --all --all-features --format json --spec-version 1.5
+          mkdir -p artifacts
+          find . -name '*.cdx.json' -not -path './target/*' -exec cp {} artifacts/ \;
+          test -n "$(find artifacts -name '*.cdx.json' -print -quit)"
+      - name: Preserve coverage or dependency evidence
+        if: matrix.check == 'coverage' || matrix.check == 'sbom'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rust-${{ matrix.check }}
+          path: artifacts/
+          if-no-files-found: error
+  image:
+    name: Quick Support / security and protocol
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Detect maintained Quick Support image
+        id: scope
+        run: |
+          if test -f Dockerfile.quick-support; then
+            echo 'image=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'No Quick Support image on this branch; Rust checks still apply.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build and exercise BusyBox security and RustDesk protocol
+        if: steps.scope.outputs.image == 'true'
+        run: docker build -f Dockerfile.quick-support -t rustdesk-pr-validation .
+      - name: Verify installed applet aliases and S6 lifecycle
+        if: steps.scope.outputs.image == 'true'
+        run: python3 tests/s6_runtime_smoke.py rustdesk-pr-validation
+  codeql:
+    name: CodeQL / ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, actions, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Exercise patch provenance and dirty-work protection
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Apply the verified downstream common patch
+        run: python3 scripts/apply_common_patch.py
+      - name: Install Rust analysis prerequisites
+        if: matrix.language == 'rust'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+      - name: Initialize source analysis
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - name: Analyze and upload source findings
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  sonar:
+    name: Sonar / Rust source and coverage
+    needs: [rust, sonar-baseline, sonar-maintained-baseline]
+    if: ${{ !cancelled() && needs.rust.result == 'success' && needs.sonar-baseline.result == 'success' && (needs.sonar-maintained-baseline.result == 'success' || needs.sonar-maintained-baseline.result == 'skipped') && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Apply the verified downstream common patch
+        run: python3 scripts/apply_common_patch.py
+      - name: Download this run's Rust reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-coverage
+          path: artifacts
+      - name: Verify report source and content identities
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: python3 scripts/sonar_evidence.py verify
+      - name: Install the Rust analyzer prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+      - name: Scan authored source with measured coverage
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.scm.revision=${{ github.event.pull_request.head.sha || github.sha }}
+            -Dsonar.qualitygate.wait=true
+      - name: Preserve the submitted compute-task receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sonar-task-receipt
+          path: .scannerwork/report-task.txt
+          if-no-files-found: error
+          include-hidden-files: true
+
+  sonar-baseline:
+    name: Sonar / original master baseline
+    if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/sonar-baseline.yml
+    with:
+      branch: master
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  sonar-maintained-baseline:
+    name: Sonar / original maintained baseline
+    needs: sonar-baseline
+    if: github.event_name != 'merge_group' && (github.event.pull_request.base.ref || github.ref_name) == 'codex/websocket-registration' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/sonar-baseline.yml
+    with:
+      branch: codex/websocket-registration
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  admission:
+    name: Repository / admission
+    if: always()
+    needs: [rust, image, codeql, sonar, sonar-baseline, sonar-maintained-baseline]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require completed source, artifact, and quality evidence
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          MAINTAINED: ${{ (github.event.pull_request.base.ref || github.ref_name) == 'codex/websocket-registration' }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          results = json.loads(os.environ['RESULTS'])
+          required = ['rust', 'image', 'codeql', 'sonar', 'sonar-baseline']
+          if os.environ['MAINTAINED'] == 'true':
+              required.append('sonar-maintained-baseline')
+          failed = {name: results[name]['result'] for name in required if results[name]['result'] != 'success'}
+          if failed:
+              raise SystemExit(f'Admission evidence is incomplete: {failed}')
+          print('All applicable source and artifact gates completed successfully')
+          PYTHON

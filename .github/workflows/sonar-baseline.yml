@@ -1,0 +1,105 @@
+name: Initialize original Sonar branch baseline
+on:
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: true
+    secrets:
+      SONAR_TOKEN:
+        required: true
+permissions:
+  contents: read
+jobs:
+  sonar-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: sonar-baseline-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      BASELINE_BRANCH: ${{ inputs.branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Inspect the existing main-branch analysis
+        id: baseline
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: python3 scripts/sonar_baseline.py inspect
+      - name: Check out the original supported branch for initial analysis
+        if: steps.baseline.outputs.needed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          ref: ${{ steps.baseline.outputs.source }}
+          path: baseline
+      - name: Measure the original supported branch without changing its source
+        if: steps.baseline.outputs.needed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup component add llvm-tools-preview --toolchain 1.90.0
+          cargo +1.90.0 install cargo-llvm-cov --version 0.9.1 --locked
+          rustup default 1.90.0
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          properties = []
+          for line in Path('sonar-project.properties').read_text().splitlines():
+              if line.startswith(('sonar.rust.clippyReport.', 'sonar.python.coverage.')):
+                  continue
+              if line.startswith('sonar.sources='):
+                  paths = line.split('=', 1)[1].split(',')
+                  line = 'sonar.sources=' + ','.join(path for path in paths if (Path('baseline') / path).is_dir())
+              properties.append(line)
+          Path('baseline/sonar-project.properties').write_text('\n'.join(properties) + '\n')
+          PYTHON
+          cd baseline
+          mkdir -p artifacts
+          cargo +1.90.0 llvm-cov --locked --workspace --all-features --remap-path-prefix --ignore-filename-regex '(^|/)(target/|src/version\.rs$)' --lcov --output-path artifacts/lcov.info
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.baseline.outputs.needed == 'true'
+        with:
+          node-version: '24'
+      - name: Prepare the original UI assets for baseline source analysis
+        if: steps.baseline.outputs.needed == 'true'
+        working-directory: baseline/ui/html
+        run: |
+          # Historical source has no npm lockfile. This resolves build tooling only;
+          # retain its generated lockfile with the baseline receipt.
+          npm install --ignore-scripts
+          npm run build
+      - name: Submit the original branch analysis as report-only backlog
+        if: steps.baseline.outputs.needed == 'true'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_EVENT_NAME: push
+          GITHUB_REF: refs/heads/${{ inputs.branch }}
+          GITHUB_SHA: ${{ steps.baseline.outputs.source }}
+        with:
+          projectBaseDir: baseline
+          args: >-
+            -Dsonar.branch.name=${{ inputs.branch }}
+            -Dsonar.scm.revision=${{ steps.baseline.outputs.source }}
+      - name: Verify the baseline compute task completed
+        if: steps.baseline.outputs.needed == 'true'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: python3 scripts/sonar_baseline.py wait
+      - name: Preserve initial baseline reports and task receipt
+        if: always() && steps.baseline.outputs.needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sonar-original-baseline-${{ inputs.branch == 'master' && 'master' || 'maintained' }}
+          path: |
+            baseline/artifacts/
+            baseline/.scannerwork/report-task.txt
+            baseline/ui/html/package-lock.json
+          if-no-files-found: error
+          include-hidden-files: true
