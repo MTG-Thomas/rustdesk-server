@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Build and exercise real rendezvous protocol
-        run: docker build -f Dockerfile.quick-support --label org.opencontainers.image.revision=$GITHUB_SHA --label org.opencontainers.image.version=1.1.16-mtg.ws3 -t ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA .
+        run: docker build -f Dockerfile.quick-support --label org.opencontainers.image.revision=$GITHUB_SHA --label org.opencontainers.image.version=1.1.16-mtg.ws4 -t ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA .
       - name: Verify final S6 runtime compatibility
         run: python3 tests/s6_runtime_smoke.py ghcr.io/mtg-thomas/rustdesk-server-quick-support:$GITHUB_SHA
       - name: Inventory the tested final image

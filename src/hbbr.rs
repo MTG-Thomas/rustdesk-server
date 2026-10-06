@@ -1,4 +1,3 @@
-use clap::App;
 use hbbs::common;
 mod relay_server;
 use flexi_logger::*;
@@ -12,16 +11,10 @@ fn main() -> ResultType<()> {
         .format(opt_format)
         .write_mode(WriteMode::Async)
         .start()?;
-    let args = format!(
-        "-p, --port=[NUMBER(default={RELAY_PORT})] 'Sets the listening port'
-        -k, --key=[KEY] 'Only allow the client with the same key'
-        ",
-    );
-    let matches = App::new("hbbr")
+    let matches = common::server_command("hbbr")
         .version(version::VERSION)
         .author("Purslane Ltd. <info@rustdesk.com>")
         .about("RustDesk Relay Server")
-        .args_from_usage(&args)
         .get_matches();
     if let Ok(v) = ini::Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
@@ -36,9 +29,11 @@ fn main() -> ResultType<()> {
         }
     }
     start(
-        matches.value_of("port").unwrap_or(&port.to_string()),
         matches
-            .value_of("key")
+            .get_one::<String>("port")
+            .unwrap_or(&port.to_string()),
+        matches
+            .get_one::<String>("key")
             .unwrap_or(&std::env::var("KEY").unwrap_or_default()),
     )?;
     Ok(())

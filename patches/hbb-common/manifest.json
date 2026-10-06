@@ -1,14 +1,14 @@
 {
   "revision": "83419b6549636ee39dacef7776c473f5802e08d6",
-  "patch_sha256": "0b836640fc2ecfdbb03ec37c7a5a31b6d50b2b36e1f3b3630ebaa1411b3b99d0",
+  "patch_sha256": "577c279c34100d9a9c052b40ad9fe62f851cec5fb6f010b9a248203d8fc29251",
   "files": {
     "Cargo.toml": {
       "before": "e057b300b9fb82a091383526807b2c7fb166e21839f917d69facad68cfc6cb57",
-      "after": "6335f972d724caa407212c7db57d8e55fbf048730d13e0eab79b7d38f6292617"
+      "after": "b84445567554d00335c6022145a270819a1b6fc98439f7cae89572ed9330ac48"
     },
     "src/config.rs": {
       "before": "8e4d62d4870e14ccbc3ddbfb7d71f13662db3fe833090ef46194dcd4e2581a5a",
-      "after": "ab19d9ef11d70d3a3288f5fba4fa2efa03842e5aec9bdadc09924293418f388e"
+      "after": "5027c8b45685f2039fe4aebc924731479ba6ac1f55163b960e1ed440b0cdd8b1"
     },
     "src/fingerprint.rs": {
       "before": "62d46014c029e7869d8b470e33a3ca51db4a8e1267676632052bf729bf7dc164",
@@ -20,7 +20,7 @@
     },
     "src/lib.rs": {
       "before": "ffc5a76d8491d3802dc5ee97a2168688bb7d54d2ad0b096c61e400ce62edafa6",
-      "after": "bae4985b5779fd2f985472e049b2650fcc74cf6f33ce579799514ca46aa6c819"
+      "after": "b4ef8e5c95a1862d04101e2f57efcdbfdc762bb3ff84a00d50f2200105a7685c"
     },
     "src/mem.rs": {
       "before": "5540d99e7513744accac8057e1d7db6a004753a7ce600ab6b8a62714866f1849",
@@ -28,7 +28,7 @@
     },
     "src/password_security.rs": {
       "before": "9331f09289a0d79f782c4d9b3bcb19f89a78237c87f0a535604e005d708ec94a",
-      "after": "e86303e3d75ab1fc79e6dc8c35fdc00c58efead3099220174e6cee6fd39c760b"
+      "after": "6938ef05c9eabe422d4a7015118253adad872d2cb78fc69d20aa524244aac717"
     },
     "src/platform/linux.rs": {
       "before": "1eeb89d1cb1cab0040827aaaa2c9a890b101cfba73332addd8ce9e4d07129312",
@@ -40,7 +40,7 @@
     },
     "src/tcp.rs": {
       "before": "dfe44f54801648546bd034fc4b59fd9406f37fdd8736369a2f7dea73745843de",
-      "after": "ee62000d73fb9ee3bfd432d8b4704e760220a92e7271b7580a6abd316b498c29"
+      "after": "b794545c3aba8acd5120377bbc0d5935315b082414767b314cd645956196413c"
     },
     "src/udp.rs": {
       "before": "c7da75a4db64fea07f6dce1ad5a791fb4d791b15dcc41672129b0f6438ad8b2f",

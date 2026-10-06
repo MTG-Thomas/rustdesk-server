@@ -7,7 +7,7 @@ use hbb_common::{
     tcp::{Encrypt, FramedStream},
     udp::FramedSocket,
 };
-use sodiumoxide::crypto::secretbox;
+use libsodium_rs::crypto_secretbox as secretbox;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
@@ -44,8 +44,8 @@ async fn udp_timeout_then_datagram_roundtrip() {
 
 #[test]
 fn encrypted_frames_reject_tampering() {
-    sodiumoxide::init().unwrap();
-    let key = secretbox::gen_key();
+    libsodium_rs::ensure_init().unwrap();
+    let key = secretbox::Key::generate();
     let mut sender = Encrypt::new(key.clone());
     let mut receiver = Encrypt::new(key.clone());
     let mut data = BytesMut::from(&sender.enc(b"authenticated payload")[..]);
@@ -54,7 +54,7 @@ fn encrypted_frames_reject_tampering() {
     let mut corrupted = sender.enc(b"second payload");
     corrupted[0] ^= 1;
     assert!(receiver.dec(&mut BytesMut::from(&corrupted[..])).is_err());
-    assert!(Encrypt::new(secretbox::gen_key())
+    assert!(Encrypt::new(secretbox::Key::generate())
         .dec(&mut BytesMut::from(
             &Encrypt::new(key).enc(b"wrong key")[..]
         ))
@@ -173,4 +173,71 @@ fn unset_connection_policy_allows_both_directions_and_tcp_listening() {
     assert!(!hbb_common::config::is_incoming_only());
     assert!(!hbb_common::config::is_outgoing_only());
     assert!(!hbb_common::config::is_disable_tcp_listen());
+}
+
+#[test]
+fn encrypted_frames_preserve_pre_migration_wire_bytes() {
+    // Independently generated with the libsodium 1.0.20 C API used by the
+    // previous sodiumoxide build. This is a public synthetic test vector.
+    let key = secretbox::Key::from_bytes(&(0u8..32).collect::<Vec<_>>()).unwrap();
+    let expected = decode_hex(
+        "ce5713a7b8587fdaf519ef1ac1ded876ae5eed419166d8a880190d2460072940a722481283db3f358ab2",
+    );
+    let mut sender = Encrypt::new(key.clone());
+    assert_eq!(sender.enc(b"legacy frame compatibility"), expected);
+    let mut receiver = Encrypt::new(key);
+    let mut received = BytesMut::from(expected.as_slice());
+    receiver.dec(&mut received).unwrap();
+    assert_eq!(&received[..], b"legacy frame compatibility");
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert_eq!(
+        value.len() % 2,
+        0,
+        "Hex fixture must contain complete bytes"
+    );
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn ed25519_preserves_existing_key_files_and_rfc8032_signatures() {
+    use libsodium_rs::crypto_sign as sign;
+    // RFC 8032 section 7.1, TEST 1: public interoperability fixtures.
+    let seed = decode_hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+    let public = decode_hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
+    let signature = decode_hex(concat!(
+        "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155",
+        "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+    ));
+    let mut stored = seed;
+    stored.extend(&public);
+    let secret = sign::SecretKey::from_bytes(&stored).unwrap();
+    let public = sign::PublicKey::from_bytes(&public).unwrap();
+    assert_eq!(sign::sign(b"", &secret).unwrap(), signature);
+    assert_eq!(sign::verify(&signature, &public), Some(Vec::new()));
+    let mut corrupted = signature;
+    corrupted[0] ^= 1;
+    assert!(sign::verify(&corrupted, &public).is_none());
+}
+
+#[test]
+fn linked_libsodium_includes_the_native_security_fixes() {
+    let version = libsodium_rs::version::version_string();
+    let numbers: Vec<u32> = version
+        .split('-')
+        .next()
+        .unwrap()
+        .split('.')
+        .map(|part| part.parse().unwrap())
+        .collect();
+    assert_eq!(numbers.len(), 3);
+    assert!(
+        numbers.as_slice() >= [1, 0, 21].as_slice(),
+        "Native libsodium is older than the patched minimum"
+    );
 }

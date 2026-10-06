@@ -69,8 +69,8 @@ jobs:
         run: |
           cargo +1.90.0 auditable build --locked --bins
           python3 scripts/check_auditable.py target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
-          cargo +1.90.0 audit --file Cargo.lock
-          cargo +1.90.0 audit bin target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
+          cargo +1.90.0 audit --deny warnings --file Cargo.lock
+          cargo +1.90.0 audit --deny warnings bin target/debug/hbbs target/debug/hbbr target/debug/rustdesk-utils
       - name: Measure workspace coverage
         if: matrix.check == 'coverage'
         env:

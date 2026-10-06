@@ -31,7 +31,7 @@ use hbb_common::{
     AddrMangle, ResultType,
 };
 use ipnetwork::Ipv4Network;
-use sodiumoxide::crypto::sign;
+use libsodium_rs::crypto_sign as sign;
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -544,12 +544,7 @@ impl RendezvousServer {
                         return Some(UUID_MISMATCH);
                     }
                 } else {
-                    log::warn!(
-                        "Peer {} uuid mismatch: {:?} vs {:?}",
-                        id,
-                        rk.uuid,
-                        peer.uuid
-                    );
+                    log::warn!("Peer registration UUID mismatch");
                     drop(peer);
                     return Some(UUID_MISMATCH);
                 }
@@ -1337,6 +1332,7 @@ impl RendezvousServer {
                         .unwrap_or_default(),
                         self.inner.sk.as_ref().unwrap(),
                     )
+                    .unwrap_or_default()
                     .into()
                 }
                 _ => Bytes::new(),
@@ -1354,7 +1350,7 @@ impl RendezvousServer {
                 key = base64::encode(&sk[(sign::SECRETKEYBYTES / 2)..]);
                 let mut tmp = [0u8; sign::SECRETKEYBYTES];
                 tmp[..].copy_from_slice(&sk);
-                out_sk = Some(sign::SecretKey(tmp));
+                out_sk = Some(sign::SecretKey::from_bytes_exact(tmp));
             }
         }
 

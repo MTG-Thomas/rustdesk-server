@@ -19,7 +19,7 @@ use hbb_common::{
     },
     ResultType,
 };
-use sodiumoxide::crypto::sign;
+use libsodium_rs::crypto_sign as sign;
 use std::{
     collections::{HashMap, HashSet},
     io::prelude::*,
@@ -434,7 +434,7 @@ async fn make_pair_(stream: impl StreamTrait, addr: SocketAddr, key: &str, limit
                 if !rf.uuid.is_empty() {
                     let mut peer = PEERS.lock().await.remove(&rf.uuid);
                     if let Some(peer) = peer.as_mut() {
-                        log::info!("Relayrequest {} from {} got paired", rf.uuid, addr);
+                        log::info!("Relay request paired");
                         let id = format!("{}:{}", addr.ip(), addr.port());
                         USAGE.write().await.insert(id.clone(), Default::default());
                         if !stream.is_ws() && !peer.is_ws() {
@@ -450,7 +450,7 @@ async fn make_pair_(stream: impl StreamTrait, addr: SocketAddr, key: &str, limit
                         }
                         USAGE.write().await.remove(&id);
                     } else {
-                        log::info!("New relay request {} from {}", rf.uuid, addr);
+                        log::info!("New relay request");
                         PEERS.lock().await.insert(rf.uuid.clone(), Box::new(stream));
                         sleep(30.).await;
                         PEERS.lock().await.remove(&rf.uuid);
