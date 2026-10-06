@@ -14,3 +14,7 @@ test.*
 *.cdx.json
 
 __pycache__/
+
+# Local scan evidence and scanner state; CI publishes receipts explicitly.
+/artifacts/
+/.scannerwork/
