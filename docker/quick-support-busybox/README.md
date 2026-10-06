@@ -1,7 +1,10 @@
 # BusyBox security replacement
 
 The Quick Support S6 runtime inherits an unpatched BusyBox 1.36.1 binary.
-Replace only `/bin/busybox`; retain the existing applet symlinks, S6 overlay,
+Replace `/bin/busybox` and convert every original BusyBox hardlink alias to a
+symlink to that binary before replacement. Upstream puts even `sh`, `wget` and
+`tar` at separate hardlink paths; overwriting one inode alone leaves them old.
+Preserve unrelated executables, S6 overlay,
 RustDesk source/lockfile and daemon configuration.
 
 BusyBox 1.37.0 source comes from https://busybox.net/downloads/busybox-1.37.0.tar.bz2,

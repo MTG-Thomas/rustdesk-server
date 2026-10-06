@@ -21,8 +21,15 @@ RUN cargo build --locked --release --bins
 RUN python3 -m venv /test-env && /test-env/bin/pip install --no-cache-dir websockets==15.0.1 && /test-env/bin/python tests/run_protocol_tests.py target/release/hbbs
 
 FROM rustdesk/rustdesk-server-s6@sha256:dc099359c4a30611c59f8826bf6eb9780f38d4901470a3901d9eeb21854e0605
+# Upstream installs applets as hardlinks. Convert only aliases of its BusyBox
+# before replacing the inode, preserving unrelated S6/RustDesk executables.
+RUN for path in /bin/* /sbin/* /usr/bin/* /usr/sbin/*; do \
+      if [ "$path" != /bin/busybox ] && [ "$path" -ef /bin/busybox ]; then \
+        /bin/busybox ln -sf /bin/busybox "$path"; \
+      fi; \
+    done
 COPY --from=build /work/target/release/hbbs /work/target/release/hbbr /work/target/release/rustdesk-utils /usr/bin/
-# Replace the inherited multicall binary; existing S6 applet symlinks stay intact.
+# Replace the inherited multicall binary after every original applet is linked.
 COPY --from=busybox-build /src/busybox-1.37.0/busybox /bin/busybox
 # Retain complete corresponding BusyBox source, patches and build configuration.
 COPY --from=busybox-build /src/busybox-1.37.0.tar.bz2 /usr/share/licenses/busybox/

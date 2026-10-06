@@ -32,6 +32,17 @@ def main(image):
         version = docker("exec", name, "/bin/busybox").stdout.splitlines()[0]
         if not version.startswith("BusyBox v1.37.0"):
             raise RuntimeError("Final image does not contain the tested BusyBox")
+        for applet in ("sh", "ash", "wget", "tar"):
+            target = docker("exec", name, "/bin/busybox", "readlink", f"/bin/{applet}").stdout.strip()
+            if target != "/bin/busybox":
+                raise RuntimeError(f"{applet} still points to an inherited binary")
+        ash = docker("exec", name, "/bin/ash", "-c", "echo ${0::0/0~09J}", check=False)
+        if ash.returncode not in (1, 2):
+            raise RuntimeError("Final ash alias does not reject the CVE trigger safely")
+        wget = docker("exec", name, "/bin/wget", "-q", "-O", "-",
+                      "http://127.0.0.1/path\r\nX-Synthetic-Header: injected", check=False)
+        if wget.returncode == 0 or "Unencoded control character" not in wget.stderr:
+            raise RuntimeError("Final wget alias does not reject HTTP header injection")
         docker("stop", "--time", "10", name, timeout=20)
         exit_code = docker("inspect", "--format", "{{.State.ExitCode}}", name).stdout.strip()
         if exit_code != "0":
