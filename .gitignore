@@ -19,3 +19,6 @@ test.*
 # Local scan evidence and scanner state; CI publishes receipts explicitly.
 /artifacts/
 /.scannerwork/
+/.coverage
+/.coverage.*
+/scripts/__pycache__/

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REPORTS = ("lcov.info", "clippy.json")
+REPORTS = ("lcov.info", "clippy.json", "python-coverage.xml")
 
 
 def identity():

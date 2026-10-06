@@ -10,6 +10,8 @@ jobs:
       contents: read
       security-events: write
     uses: ./.github/workflows/repo-validation.yml
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
   build-test-publish:
     needs: validate
     permissions:
