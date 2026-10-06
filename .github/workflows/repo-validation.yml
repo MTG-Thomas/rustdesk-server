@@ -1,0 +1,108 @@
+name: Repository validation
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: repo-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust:
+    name: Rust / ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [format, clippy, test, audit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Install native build prerequisites
+        if: matrix.check == 'clippy' || matrix.check == 'test'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
+      - name: Install the release Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - name: Check formatting without rewriting source
+        if: matrix.check == 'format'
+        run: cargo +1.90.0 fmt --all -- --check
+      - name: Check Rust diagnostics
+        if: matrix.check == 'clippy'
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+        run: cargo +1.90.0 clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Run workspace tests
+        if: matrix.check == 'test'
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+        run: cargo +1.90.0 test --locked --workspace --all-features
+      - name: Install the pinned RustSec auditor
+        if: matrix.check == 'audit'
+        run: cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
+      - name: Audit the committed dependency lockfile
+        if: matrix.check == 'audit'
+        run: cargo +1.90.0 audit --file Cargo.lock
+  image:
+    name: Quick Support / security and protocol
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Detect maintained Quick Support image
+        id: scope
+        run: |
+          if test -f Dockerfile.quick-support; then
+            echo 'image=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'No Quick Support image on this branch; Rust checks still apply.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build and exercise BusyBox security and RustDesk protocol
+        if: steps.scope.outputs.image == 'true'
+        run: docker build -f Dockerfile.quick-support -t rustdesk-pr-validation .
+      - name: Verify installed applet aliases and S6 lifecycle
+        if: steps.scope.outputs.image == 'true'
+        run: python3 tests/s6_runtime_smoke.py rustdesk-pr-validation
+  codeql:
+    name: CodeQL / ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Install Rust analysis prerequisites
+        if: matrix.language == 'rust'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev libssl-dev libclang-dev autoconf automake libtool
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+      - name: Initialize source analysis
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - name: Analyze and upload source findings
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          category: /language:${{ matrix.language }}
