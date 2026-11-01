@@ -234,10 +234,27 @@ jobs:
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+  windows-sodium:
+    name: Windows / sodium archive and bindings
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Apply the verified downstream common patch
+        run: python scripts/apply_common_patch.py
+      - name: Install the release Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal
+      - name: Build and exercise the Windows sodium bindings
+        env:
+          CARGO_BUILD_JOBS: '1'
+        run: cargo +1.90.0 test --locked -p libsodium-sys-stable --lib
   admission:
     name: Repository / admission
     if: always()
-    needs: [rust, image, codeql, sonar, sonar-baseline, sonar-maintained-baseline]
+    needs: [rust, image, codeql, sonar, sonar-baseline, sonar-maintained-baseline, windows-sodium]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -250,7 +267,7 @@ jobs:
           import json
           import os
           results = json.loads(os.environ['RESULTS'])
-          required = ['rust', 'image', 'codeql', 'sonar', 'sonar-baseline']
+          required = ['rust', 'image', 'codeql', 'sonar', 'sonar-baseline', 'windows-sodium']
           if os.environ['MAINTAINED'] == 'true':
               required.append('sonar-maintained-baseline')
           failed = {name: results[name]['result'] for name in required if results[name]['result'] != 'success'}
