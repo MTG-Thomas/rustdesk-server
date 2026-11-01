@@ -239,6 +239,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
+      - name: Preserve verified patch and submodule bytes
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
