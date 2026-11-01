@@ -24,8 +24,12 @@
       "BIFROST-PATCH.md"
     ],
     "removed_files": [
-      "Cargo.lock"
+      "Cargo.lock",
+      ".github/dependabot.yml",
+      ".github/workflows/native.yml",
+      ".github/workflows/wasm.yml",
+      ".github/workflows/ios.yml"
     ],
-    "removal_reason": "Packaged standalone lock is not used by this workspace; root Cargo.lock resolves and audits both patched crates."
+    "removal_reason": "Packaged standalone lock is not used by this workspace; root Cargo.lock resolves and audits both patched crates. Packaged upstream CI workflows are omitted because they do not build these dependencies in this fork."
   }
 ]
