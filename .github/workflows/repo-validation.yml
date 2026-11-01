@@ -56,7 +56,9 @@ jobs:
         if: matrix.check == 'test'
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
-        run: cargo +1.90.0 test --locked --workspace --all-features
+        run: |
+          cargo +1.90.0 test --locked --workspace --all-features
+          cargo +1.90.0 test --locked -p dtls --lib
       - name: Install the pinned RustSec auditor
         if: matrix.check == 'audit'
         run: |

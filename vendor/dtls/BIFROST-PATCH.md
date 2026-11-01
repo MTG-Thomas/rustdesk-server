@@ -1,0 +1,2 @@
+Source: crates.io dtls 0.17.2. Downstream migration of P-256/P-384 to 0.14 to remove crypto-bigint 0.5.5 (RUSTSEC-2026-0387). Requires full DTLS handshake/interoperability and security regression validation before release.
+The packaged standalone Cargo.lock is omitted; the root workspace lockfile is authoritative. See ../provenance.json for original package checksums and the exact changed-file list.

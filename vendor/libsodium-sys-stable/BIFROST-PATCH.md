@@ -1,0 +1,2 @@
+Source: crates.io libsodium-sys-stable 1.24.3. Local change: ZIP build dependency 8.6 -> 9.0 to address RUSTSEC-2026-0367/0368/0369. Existing Rust and build source is retained unchanged. This is a downstream compatibility patch, not an upstream release. Requires Linux and Windows build validation before release.
+The packaged standalone Cargo.lock is omitted; the root workspace lockfile is authoritative. See ../provenance.json for original package checksums and the exact changed-file list.
