@@ -1,0 +1,35 @@
+[
+  {
+    "crate": "dtls",
+    "version": "0.17.2",
+    "registry_package_checksum": "01a431e87fc386bd5e02deb554a013f97bc406e47a7d8e97efb7c6366b980e9c",
+    "changed_files": [
+      "Cargo.toml",
+      "BIFROST-PATCH.md",
+      "src/prf/mod.rs",
+      "src/curve/named_curve.rs",
+      "src/prf/prf_test.rs"
+    ],
+    "removed_files": [
+      "Cargo.lock"
+    ],
+    "removal_reason": "Packaged standalone lock is not used by this workspace; root Cargo.lock resolves and audits both patched crates."
+  },
+  {
+    "crate": "libsodium-sys-stable",
+    "version": "1.24.3",
+    "registry_package_checksum": "1f55c1c508d31e2cf0a649c9c889e4bcf554cbfb2a6803f049f219784b044283",
+    "changed_files": [
+      "Cargo.toml",
+      "BIFROST-PATCH.md"
+    ],
+    "removed_files": [
+      "Cargo.lock",
+      ".github/dependabot.yml",
+      ".github/workflows/native.yml",
+      ".github/workflows/wasm.yml",
+      ".github/workflows/ios.yml"
+    ],
+    "removal_reason": "Packaged standalone lock is not used by this workspace; root Cargo.lock resolves and audits both patched crates. Packaged upstream CI workflows are omitted because they do not build these dependencies in this fork."
+  }
+]
