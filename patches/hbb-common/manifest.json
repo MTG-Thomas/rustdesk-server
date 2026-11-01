@@ -1,10 +1,10 @@
 {
   "revision": "69cea8dafee147848ae88702029f4bf7df7224c3",
-  "patch_sha256": "86df1d2b91e37555668bd63e0e7eaea431ee77217474aa2a81ec82c9d7b13ec5",
+  "patch_sha256": "390e6baaeab6ead17a3f36f6bc90655c879b941dd0ad64614f0c8b35da3b4a50",
   "files": {
     "Cargo.toml": {
       "before": "54f297e75dfa0748c7d06d1e251811e369b6f9aa7d566716c150efad2720556f",
-      "after": "70197b6bafd060bda62f4e16a1bea2d28d1df5995af5fe9e3f2088f7ed233b9a"
+      "after": "a710d09ce783d3e169374884ae2c98e9957e7f8acfde841ef68653f3c43f8e81"
     },
     "examples/webrtc.rs": {
       "before": "d892faf0748e4e49fbb57baae41f36ebd630925107489a5b17372dc6e9ea1c03",

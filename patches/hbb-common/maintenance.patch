@@ -1,7 +1,16 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 6ad3012..4000102 100644
+index 6ad3012..510a1d1 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
+@@ -21,7 +21,7 @@ bytes = { version = "1.10", features = ["serde"] }
+ log = "0.4"
+ env_logger = "0.11"
+ socket2 = { version = "0.3", features = ["reuseport"] }
+-zstd = "0.13"
++zstd = "0.14.3"
+ anyhow = "1.0"
+ futures-util = "0.3"
+ directories-next = "2.0"
 @@ -33,13 +33,12 @@ lazy_static = "1.5"
  confy = { git = "https://github.com/rustdesk-org/confy" }
  dirs-next = "2.0"
