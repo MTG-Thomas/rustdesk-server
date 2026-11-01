@@ -244,6 +244,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Apply the verified downstream common patch
+        shell: bash
         run: python scripts/apply_common_patch.py
       - name: Install the release Rust toolchain
         run: rustup toolchain install 1.90.0 --profile minimal
